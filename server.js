@@ -77,6 +77,9 @@ const RC_URL = "https://claude.ai/code";
 // Models / effort levels the reply endpoint may pass (validated server-side).
 const ALLOWED_MODELS = new Set(["opus", "sonnet", "haiku", "fable"]);
 const ALLOWED_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
+// Permission modes the web app may switch a reply into ("" / omit = leave default).
+// bypassPermissions is intentionally excluded — too dangerous to toggle from a web UI.
+const ALLOWED_PERMISSION_MODES = new Set(["auto", "acceptEdits", "plan"]);
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -149,6 +152,7 @@ async function parseTranscriptMeta(file) {
     assistantCount: 0,
     lastAssistantEndsWithQuestion: false,
     pendingTool: null,
+    permissionMode: null,
     tok5h: 0,
     tokWeek: 0,
   };
@@ -182,6 +186,7 @@ async function parseTranscriptMeta(file) {
 
       if (o.cwd) meta.cwd = o.cwd;
       if (o.gitBranch) meta.gitBranch = o.gitBranch;
+      if (t === "user" && typeof o.permissionMode === "string") meta.permissionMode = o.permissionMode;
       if (o.timestamp) {
         meta.lastTs = o.timestamp;
         if (!meta.firstTs) meta.firstTs = o.timestamp;
@@ -368,6 +373,7 @@ async function buildSessionList() {
         firstTs: meta.firstTs,
         mtimeMs: meta.mtimeMs,
         pendingTool: meta.pendingTool,
+        permissionMode: meta.permissionMode,
         tok5h: meta.tok5h,
         tokWeek: meta.tokWeek,
         needsAttention: status === "waiting",
@@ -711,10 +717,11 @@ const AUTH_RE = /not logged in|\/login|setup-token|auth|sign ?in|credential|inva
 const inFlightSends = new Set();
 const inFlightTypes = new Set(); // sessions with an in-progress live-window paste
 
-async function sendToSession(sessionId, message, model, effort, attachments) {
+async function sendToSession(sessionId, message, model, effort, attachments, mode) {
   if (!UUID_RE.test(sessionId)) return { ok: false, reason: "badid", message: "Invalid session id." };
   if (model && !ALLOWED_MODELS.has(model)) return { ok: false, reason: "badmodel", message: "Unknown model." };
   if (effort && !ALLOWED_EFFORT.has(effort)) return { ok: false, reason: "badeffort", message: "Unknown effort level." };
+  if (mode && !ALLOWED_PERMISSION_MODES.has(mode)) return { ok: false, reason: "badmode", message: "Unknown permission mode." };
   const files = (Array.isArray(attachments) ? attachments : []).map(resolveUpload).filter(Boolean).slice(0, 10);
 
   const file = await findTranscriptFile(sessionId);
@@ -758,6 +765,7 @@ async function sendToSession(sessionId, message, model, effort, attachments) {
   args.push("-p");
   if (model) args.push("--model", model);
   if (effort) args.push("--effort", effort);
+  if (mode) args.push("--permission-mode", mode);
   args.push("--", text);
   try {
     return await new Promise((resolve) => {
@@ -1183,7 +1191,8 @@ const server = http.createServer(async (req, res) => {
         const model = typeof body.model === "string" && body.model ? body.model : undefined;
         const effort = typeof body.effort === "string" && body.effort ? body.effort : undefined;
         const attachments = Array.isArray(body.attachments) ? body.attachments : [];
-        const result = await sendToSession(sessionId, msg, model, effort, attachments);
+        const pmode = typeof body.mode === "string" && body.mode ? body.mode : undefined;
+        const result = await sendToSession(sessionId, msg, model, effort, attachments, pmode);
         // Logical failures come back as 200 so the client can render a helpful
         // message (auth guidance, etc.) rather than a thrown generic error.
         return sendJSON(res, 200, result);
