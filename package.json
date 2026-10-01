@@ -1,0 +1,52 @@
+{
+  "name": "codeshelf",
+  "version": "1.0.0",
+  "description": "A local, zero-dependency dashboard to monitor, search, and reply to your Claude Code sessions — see which agents are working, which need you, and reply straight into the live chat.",
+  "type": "module",
+  "bin": {
+    "codeshelf": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "dashboard",
+    "session-manager",
+    "ai-agents",
+    "developer-tools",
+    "monitoring",
+    "self-hosted",
+    "zero-dependency",
+    "macos"
+  ],
+  "homepage": "https://github.com/muhammad-hassnain/codeshelf#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammad-hassnain/codeshelf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/muhammad-hassnain/codeshelf/issues"
+  },
+  "author": "Muhammad Hassnain",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "files": [
+    "server.js",
+    "public/",
+    "docs/",
+    "AGENTS.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "LICENSE"
+  ]
+}

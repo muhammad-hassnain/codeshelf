@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="ce-token" content="__CE_TOKEN__" />
+    <title>CodeShelf</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='2.5' y='18.4' width='19' height='2.8' rx='1.2' fill='%232c5241'/><rect x='4' y='8' width='3.4' height='10.6' rx='1' fill='%238a3a33'/><rect x='7.8' y='5.4' width='3.4' height='13.2' rx='1' fill='%23c89b3c'/><rect x='11.6' y='9' width='3.4' height='9.6' rx='1' fill='%233a6451'/><rect x='15.9' y='7.3' width='3.2' height='11.3' rx='1' fill='%238a3a33' transform='rotate(9 17.5 13)'/><path d='M8.7 9.4 7.5 11l1.2 1.6M10.3 9.4 11.5 11l-1.2 1.6' fill='none' stroke='%23fbf6ec' stroke-width='0.9' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <a href="#content" class="skip">Skip to sessions</a>
+    <header class="appbar">
+      <div class="brand">
+        <span class="brand-mark" id="brandMark"></span>
+        <h1 class="brand-name">Code<span>Shelf</span></h1>
+      </div>
+      <div class="appbar-actions">
+        <div class="live-cluster">
+          <span class="updated" id="updated" aria-live="polite"></span>
+          <label class="auto"><input type="checkbox" id="autorefresh" checked /><span>Live</span></label>
+          <button class="iconbtn ghost" id="refreshBtn" data-icon="refresh" aria-label="Refresh now" title="Refresh now"></button>
+        </div>
+        <button class="iconbtn" id="notifyBtn" data-icon="bell" aria-label="Notify me when a session needs me" aria-pressed="false" title="Notify me when a session needs me"></button>
+        <button class="iconbtn" id="themeBtn" aria-label="Theme" title="Theme"></button>
+        <button class="newbtn" id="newBtn" title="Start a new Claude Code session">+ New session</button>
+      </div>
+    </header>
+
+    <section class="usage" id="usage" aria-label="Plan usage"></section>
+
+    <section class="signal" id="signal" aria-label="Status overview"></section>
+
+    <div class="toolbar">
+      <div class="search">
+        <span class="search-ico" id="searchIco" aria-hidden="true"></span>
+        <input type="search" id="searchInput" aria-label="Search all conversations" placeholder="Search every conversation…" autocomplete="off" />
+      </div>
+      <nav class="chips" id="projectChips" aria-label="Filter by project"></nav>
+    </div>
+
+    <main class="content" id="content" tabindex="-1" aria-live="polite" aria-busy="true">
+      <div id="loading" aria-label="Loading sessions">
+        <div class="cards">
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+          <div class="sk-card"><div class="sk sk-title"></div><div class="sk-sub"><span class="sk sk-pill"></span><span class="sk sk-tag"></span><span class="sk sk-tag"></span></div><div class="sk sk-line"></div><div class="sk sk-line short"></div><div class="sk-foot"><span class="sk sk-donut"></span><span class="sk sk-donut"></span></div></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Conversation drawer -->
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <section class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="convoTitle" hidden>
+      <div class="drawer-head">
+        <button class="iconbtn" id="drawerClose" data-icon="x" aria-label="Close conversation"></button>
+        <div class="drawer-title">
+          <h2 id="convoTitle"></h2>
+          <div class="drawer-meta" id="convoMeta"></div>
+        </div>
+        <div class="msgfilter" id="msgFilter" role="group" aria-label="Filter messages"></div>
+      </div>
+      <div class="messages" id="messages" role="log" aria-label="Conversation messages"></div>
+      <div class="composer" id="composer"></div>
+    </section>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

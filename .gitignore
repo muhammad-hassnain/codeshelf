@@ -1,0 +1,30 @@
+# Dependencies (there are none, but just in case)
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-error.log*
+
+# Logs & runtime
+*.log
+*.pid
+*.seed
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*~
+
+# CodeShelf runtime data (lives in $HOME, but ignore if copied in)
+.codeshelf/
+uploads/
+
+# Local Claude Code settings that aren't part of the app
+.claude/settings.local.json
