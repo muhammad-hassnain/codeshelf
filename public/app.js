@@ -459,7 +459,8 @@ function renderComposer(c) {
   const chosen = lsGet("ce-model", "");
   const eff = Math.max(0, Math.min(5, lsGet("ce-effort", 0)));
   const authNote = !meta.loggedIn ? authNoteHTML() : "";
-  const liveBot = c.live && !!c.appLink; // can we type straight into the live window?
+  // Live-window typing uses macOS GUI automation, so offer it only on macOS.
+  const liveBot = c.live && !!c.appLink && meta.platform !== "win32" && meta.platform !== "linux";
   const liveNote = liveBot
     ? `<div class="live-note">${svg("activity", "ic-sm")}<span class="ln-main">Typed into the live Claude window — syncs to Remote Control &amp; phone, and the reply streams in here. Claude briefly comes forward, then focus returns to your window.</span><button type="button" class="applink ln-toggle" id="liveDetailsBtn" aria-expanded="false" aria-controls="liveMore">Details</button><div class="ln-more" id="liveMore" hidden>First use asks for macOS Accessibility permission (once). Attachments can't be typed in — <button type="button" class="applink" id="headlessLink" title="Run the reply as a separate headless turn instead">send a separate turn here</button> for those${meta.rcUrl ? ` · <a class="applink" href="${esc(meta.rcUrl)}" target="_blank" rel="noopener">Remote Control ↗</a>` : ""}.</div></div>`
     : c.live

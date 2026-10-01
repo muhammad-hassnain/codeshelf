@@ -57,8 +57,15 @@ const MAX_BODY = 64 * 1024;
 const CONVO_LIMIT_MAX = 5000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// The Claude desktop app records plan-usage percentages here (not under ~/.claude).
-const USAGE_FILE = path.join(HOME, "Library", "Application Support", "Claude", "plan-usage-history.json");
+// The Claude desktop app's data dir (holds plan-usage-history.json) — resolved
+// per OS: macOS ~/Library/Application Support/Claude, Windows %APPDATA%\Claude,
+// Linux ~/.config/Claude. Override with CE_USAGE_FILE if yours differs.
+function claudeDesktopDir() {
+  if (process.platform === "win32") return path.join(process.env.APPDATA || path.join(HOME, "AppData", "Roaming"), "Claude");
+  if (process.platform === "darwin") return path.join(HOME, "Library", "Application Support", "Claude");
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "Claude");
+}
+const USAGE_FILE = process.env.CE_USAGE_FILE || path.join(claudeDesktopDir(), "plan-usage-history.json");
 // Attachments the user posts from the web app land here (outside ~/.claude).
 const UPLOADS_DIR = path.join(HOME, ".codeshelf", "uploads");
 const MAX_UPLOAD = 10 * 1024 * 1024;
@@ -636,23 +643,33 @@ async function readUsage() {
 
 function findClaudeBinary() {
   if (process.env.CLAUDE_BIN && fs.existsSync(process.env.CLAUDE_BIN)) return process.env.CLAUDE_BIN;
-  const candidates = [
-    path.join(HOME, ".claude", "local", "claude"),
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-    path.join(HOME, ".local", "bin", "claude"),
-  ];
-  for (const c of candidates) if (fs.existsSync(c)) return c;
+  const win = process.platform === "win32";
+  const exe = win ? "claude.exe" : "claude";
+  const candidates = [path.join(HOME, ".claude", "local", exe)];
+  let bundleGlob = null;
+  if (win) {
+    const appdata = process.env.APPDATA || path.join(HOME, "AppData", "Roaming");
+    const localapp = process.env.LOCALAPPDATA || path.join(HOME, "AppData", "Local");
+    candidates.push(
+      path.join(appdata, "npm", "claude.exe"),
+      path.join(localapp, "Programs", "claude", "claude.exe"),
+    );
+    bundleGlob = path.join(appdata, "Claude", "claude-code", "*", "*", "claude.exe");
+  } else if (process.platform === "darwin") {
+    candidates.push("/opt/homebrew/bin/claude", "/usr/local/bin/claude", path.join(HOME, ".local", "bin", "claude"));
+    bundleGlob = path.join(HOME, "Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS/claude");
+  } else {
+    candidates.push("/usr/local/bin/claude", "/usr/bin/claude", path.join(HOME, ".local", "bin", "claude"));
+    bundleGlob = path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "Claude", "claude-code", "*", "*", "claude");
+  }
+  for (const c of candidates) { try { if (fs.existsSync(c)) return c; } catch {} }
   // Fall back to the Claude desktop app's bundled CLI (newest version).
   try {
-    const bundles = fs
-      .globSync(path.join(HOME, "Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS/claude"))
-      .sort();
-    if (bundles.length) return bundles[bundles.length - 1];
+    if (bundleGlob) { const b = fs.globSync(bundleGlob).sort(); if (b.length) return b[b.length - 1]; }
   } catch {
     /* globSync may be unavailable on very old Node */
   }
-  return "claude";
+  return win ? "claude.exe" : "claude"; // last resort: rely on PATH
 }
 
 function loginCommand() {
@@ -1203,7 +1220,7 @@ const server = http.createServer(async (req, res) => {
         const sessions = await getSessionList();
         const folders = [...new Map(sessions.filter((s) => s.cwd).map((s) => [s.cwd, { cwd: s.cwd, project: s.project }])).values()]
           .sort((a, b) => a.project.localeCompare(b.project));
-        return sendJSON(res, 200, { loggedIn: await checkLoggedIn(), loginCmd: loginCommand(), folders, rcUrl: RC_URL });
+        return sendJSON(res, 200, { loggedIn: await checkLoggedIn(), loginCmd: loginCommand(), folders, rcUrl: RC_URL, platform: process.platform });
       }
 
       if (p === "/api/new" && req.method === "POST") {

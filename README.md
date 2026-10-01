@@ -4,7 +4,7 @@
 
 ![license](https://img.shields.io/badge/license-MIT-3a6451)
 ![node](https://img.shields.io/badge/node-%E2%89%A518-3a6451)
-![platform](https://img.shields.io/badge/platform-macOS-6f665a)
+![platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-6f665a)
 ![dependencies](https://img.shields.io/badge/dependencies-0-3a6451)
 ![runs](https://img.shields.io/badge/node%20server.js-%E2%86%92%20127.0.0.1%3A4178-8a6410)
 
@@ -84,7 +84,8 @@ All optional — CodeShelf works with zero config.
 | `PORT` | `4178` | Port to serve on |
 | `HOST` | `127.0.0.1` | Bind address — keep it loopback |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores sessions |
-| `CLAUDE_BIN` | auto-detected | Path to the `claude` binary (for replies / new sessions) |
+| `CLAUDE_BIN` | auto-detected | Path to the `claude` binary (for replies / new sessions). On Windows, point this at `claude.exe` if auto-detect misses it |
+| `CE_USAGE_FILE` | auto-detected | Path to the desktop app's `plan-usage-history.json` (auto-resolved per OS; set only if yours is non-standard) |
 | `CE_ORG` | _(none)_ | Your claude.ai org slug — **set this** to enable the "open in app" deep links and live-window typing |
 | `ANTHROPIC_API_KEY` | — | If set, the `claude` CLI uses it for replies instead of a login |
 
@@ -134,7 +135,7 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Requirements
 
-- **macOS** — the live-window typing and the plan-usage panel are macOS-specific; the session board reads `~/.claude` and could be adapted to other platforms.
+- **macOS, Windows, or Linux** — the dashboard (session board, browse, search, usage panel, replies, new sessions) works on all three; paths are auto-detected per OS (sessions from `~/.claude`, plan usage from the desktop app's data dir). The only macOS-only feature is **"Send to live window"** GUI automation — elsewhere it's hidden and you use **Remote Control** or **"Copy & open in app"** instead.
 - **Node 18+**
 - **Claude Code** installed, with the `claude` CLI logged in (only needed for sending/creating sessions).
 
