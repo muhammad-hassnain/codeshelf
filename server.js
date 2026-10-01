@@ -374,6 +374,7 @@ async function buildSessionList() {
         mtimeMs: meta.mtimeMs,
         pendingTool: meta.pendingTool,
         permissionMode: meta.permissionMode,
+        queued: (queues.get(meta.sessionId) || []).length,
         tok5h: meta.tok5h,
         tokWeek: meta.tokWeek,
         needsAttention: status === "waiting",
@@ -507,7 +508,63 @@ async function readConversation(sessionId, { limit = 1200 } = {}) {
     truncated: total > tail.length,
     lastTs: tail.length ? tail[tail.length - 1].ts : null,
     messages: tail,
+    queue: queueView(sessionId),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Prompt queue (per session): queued messages are sent one at a time, each
+// waiting for the previous turn to finish — so you never interrupt Claude
+// mid-turn. In-memory; drains server-side (keeps going if the tab closes, but
+// not across a server restart).
+// ---------------------------------------------------------------------------
+const queues = new Map(); // sessionId -> [{ id, text, model, effort, status, error }]
+const draining = new Set();
+let queueSeq = 0;
+
+function queueView(sessionId) {
+  return (queues.get(sessionId) || []).map((it) => ({
+    id: it.id, text: it.text, status: it.status || "queued", error: it.error || null,
+  }));
+}
+function enqueuePrompt(sessionId, { text, model, effort, mode }) {
+  const q = queues.get(sessionId) || [];
+  q.push({ id: `q${++queueSeq}`, text, model, effort, mode, status: "queued", error: null });
+  queues.set(sessionId, q);
+  drainQueue(sessionId);
+}
+function dequeuePrompt(sessionId, itemId) {
+  const q = queues.get(sessionId);
+  if (!q) return false;
+  const i = q.findIndex((it) => it.id === itemId);
+  if (i < 0 || q[i].status === "sending") return false; // can't cancel the in-flight one
+  q.splice(i, 1);
+  if (!q.length) queues.delete(sessionId);
+  else drainQueue(sessionId); // removing a blocking (e.g. errored) item resumes the rest
+  return true;
+}
+async function drainQueue(sessionId) {
+  if (draining.has(sessionId)) return;
+  draining.add(sessionId);
+  try {
+    for (;;) {
+      const item = (queues.get(sessionId) || []).find((it) => it.status === "queued");
+      if (!item) break;
+      item.status = "sending";
+      const res = await sendToSession(sessionId, item.text, item.model, item.effort, [], item.mode);
+      const cur = queues.get(sessionId) || [];
+      const idx = cur.findIndex((it) => it.id === item.id);
+      if (res.ok) {
+        if (idx >= 0) cur.splice(idx, 1);
+        if (!cur.length) queues.delete(sessionId);
+      } else {
+        if (idx >= 0) { cur[idx].status = "error"; cur[idx].error = res.message || "Send failed"; }
+        break; // stop; let the user fix it (e.g. log in) and re-queue
+      }
+    }
+  } finally {
+    draining.delete(sessionId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,6 +1253,28 @@ const server = http.createServer(async (req, res) => {
         // Logical failures come back as 200 so the client can render a helpful
         // message (auth guidance, etc.) rather than a thrown generic error.
         return sendJSON(res, 200, result);
+      }
+
+      if (p.startsWith("/api/sessions/") && p.endsWith("/queue") && req.method === "POST") {
+        const sessionId = decodeURIComponent(p.slice("/api/sessions/".length, -"/queue".length));
+        let body;
+        try { body = await readBody(req); } catch { return sendJSON(res, 413, { ok: false, message: "Message too large." }); }
+        const msg = typeof body.message === "string" ? body.message.trim() : "";
+        if (!msg) return sendJSON(res, 400, { ok: false, message: "Empty message." });
+        if (msg.length > 32000) return sendJSON(res, 413, { ok: false, message: "Message too long." });
+        const model = typeof body.model === "string" && body.model ? body.model : undefined;
+        const effort = typeof body.effort === "string" && body.effort ? body.effort : undefined;
+        const pmode = typeof body.mode === "string" && body.mode ? body.mode : undefined;
+        enqueuePrompt(sessionId, { text: msg, model, effort, mode: pmode });
+        return sendJSON(res, 200, { ok: true, queue: queueView(sessionId) });
+      }
+
+      if (p.startsWith("/api/sessions/") && p.endsWith("/dequeue") && req.method === "POST") {
+        const sessionId = decodeURIComponent(p.slice("/api/sessions/".length, -"/dequeue".length));
+        let body;
+        try { body = await readBody(req); } catch { return sendJSON(res, 413, { ok: false }); }
+        const ok = dequeuePrompt(sessionId, String(body.itemId || ""));
+        return sendJSON(res, 200, { ok, queue: queueView(sessionId) });
       }
 
       if (p.startsWith("/api/sessions/") && p.endsWith("/livetype") && req.method === "POST") {

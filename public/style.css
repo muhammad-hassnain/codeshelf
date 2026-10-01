@@ -325,6 +325,21 @@ button.applink { background: none; border: none; padding: 0; cursor: pointer; fo
 .attach-x { display: inline-grid; place-items: center; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 2px; }
 .attach-x:hover { color: var(--urgent); }
 
+/* ---------- Prompt queue ---------- */
+.queue-panel { margin-bottom: 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-2); overflow: hidden; }
+.queue-head { display: flex; align-items: center; gap: 6px; padding: 7px 11px; font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid var(--border); }
+.queue-head svg { color: var(--accent-2); }
+.queue-item { display: flex; align-items: center; gap: 9px; padding: 7px 11px; font-size: 13px; color: var(--text); border-bottom: 1px solid var(--border); }
+.queue-item:last-child { border-bottom: none; }
+.queue-item .qn { flex-shrink: 0; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-size: 11px; font-family: var(--mono); color: var(--text-3); }
+.queue-item .qtext { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-item .qmark { flex-shrink: 0; font-size: 11px; color: var(--accent-2); }
+.queue-item .qerr { flex-shrink: 0; font-size: 11px; color: var(--urgent); }
+.queue-item.q-sending { color: var(--text-2); }
+.queue-item.q-error { background: color-mix(in srgb, var(--urgent) 8%, transparent); }
+.qx { display: inline-grid; place-items: center; background: none; border: none; color: var(--text-3); cursor: pointer; padding: 0 2px; flex-shrink: 0; }
+.qx:hover { color: var(--urgent); }
+
 /* ---------- Modal + toast ---------- */
 .modal-backdrop { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 16px; }
 .modal { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; width: min(480px, 100%); box-shadow: var(--shadow-lg); max-height: 88vh; overflow-y: auto; }
