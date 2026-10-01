@@ -81,6 +81,7 @@ const MODELS = [
   { v: "haiku", label: "Haiku" }, { v: "fable", label: "Fable" },
 ];
 const EFFORT_VALUES = ["", "low", "medium", "high", "xhigh", "max"];
+const PMODES = [{ v: "", label: "Default mode" }, { v: "auto", label: "Auto" }, { v: "acceptEdits", label: "Accept edits" }, { v: "plan", label: "Plan" }];
 const EFFORT_LABELS = ["Default", "Low", "Medium", "High", "X-High", "Max"];
 
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
@@ -211,6 +212,13 @@ function groupHTML(title, led, items, cls) {
   return `<section class="group"><h2 class="group-head ${cls}"><span class="led" style="background:${led}"></span>${esc(title)} <span class="gcount">${items.length}</span></h2><div class="cards">${items.map(card).join("")}</div></section>`;
 }
 
+const MODE_LABELS = { auto: "Auto", default: "Default", manual: "Manual", plan: "Plan", acceptEdits: "Accept edits", bypassPermissions: "Bypass", dontAsk: "Don't ask" };
+function modeBadge(mode) {
+  if (!mode) return "";
+  const label = MODE_LABELS[mode] || (mode[0].toUpperCase() + mode.slice(1));
+  const cls = /^[a-zA-Z]+$/.test(mode) ? mode : "other";
+  return `<span class="mode mode-${cls}" title="Permission mode: ${esc(label)}">${esc(label)}</span>`;
+}
 function card(s) {
   const st = STATUS[s.status] || STATUS.closed;
   const who = s.lastRole === "assistant" ? "Claude" : "You";
@@ -223,6 +231,7 @@ function card(s) {
     </div>
     <div class="card-sub">
       <span class="status ${st.cls}">${statusIcon(s.status)}${st.label}</span>
+      ${modeBadge(s.permissionMode)}
       <span class="proj">${esc(s.project)}</span>
       ${s.gitBranch ? `<span class="meta">${svg("branch", "ic-sm")} ${esc(s.gitBranch)}</span>` : ""}
       <span class="meta">${s.messageCount} msg${s.messageCount === 1 ? "" : "s"}</span>
@@ -405,7 +414,8 @@ async function refreshOpenSession() {
 }
 function updateConvoHeader(c) {
   const st = STATUS[c.status] || STATUS.closed;
-  $("#convoMeta").innerHTML = `<span class="proj">${esc(c.project)}</span><span class="status ${st.cls}" style="font-size:10px">${statusIcon(c.status)}${st.label}</span><span class="meta" style="font-family:var(--mono)">${c.totalMessages} messages</span>${c.truncated ? `<span>showing last ${c.returnedMessages}</span>` : ""}`;
+  const mode = c.permissionMode || state.sessions.find((x) => x.sessionId === c.sessionId)?.permissionMode;
+  $("#convoMeta").innerHTML = `<span class="proj">${esc(c.project)}</span><span class="status ${st.cls}" style="font-size:10px">${statusIcon(c.status)}${st.label}</span>${modeBadge(mode)}<span class="meta" style="font-family:var(--mono)">${c.totalMessages} messages</span>${c.truncated ? `<span>showing last ${c.returnedMessages}</span>` : ""}`;
 }
 function renderMsgFilter() {
   $("#msgFilter").innerHTML =
@@ -458,6 +468,8 @@ function renderComposer(c) {
   const el = $("#composer");
   const chosen = lsGet("ce-model", "");
   const eff = Math.max(0, Math.min(5, lsGet("ce-effort", 0)));
+  const sessMode = state.sessions.find((x) => x.sessionId === c.sessionId)?.permissionMode || "";
+  const curMode = PMODES.some((m) => m.v === sessMode) ? sessMode : "";
   const authNote = !meta.loggedIn ? authNoteHTML() : "";
   // Live-window typing uses macOS GUI automation, so offer it only on macOS.
   const liveBot = c.live && !!c.appLink && meta.platform !== "win32" && meta.platform !== "linux";
@@ -473,6 +485,7 @@ function renderComposer(c) {
       <button class="cbtn" id="attachBtn" type="button" aria-label="Attach image or file" title="Attach image / file">${svg("paperclip", "ic-sm")}</button>
       <button class="cbtn" id="micBtn" type="button" aria-pressed="false" aria-label="Dictate (voice to text)" title="Dictate — voice to text">${svg("mic", "ic-sm")}</button>
       <select class="model-select" id="modelSelect" aria-label="Model">${MODELS.map((m) => `<option value="${m.v}" ${m.v === chosen ? "selected" : ""}>${m.label}</option>`).join("")}</select>
+      <select class="model-select" id="modeSelect" aria-label="Permission mode" title="Permission mode for this reply (switches the session's mode when sent)">${PMODES.map((m) => `<option value="${m.v}" ${m.v === curMode ? "selected" : ""}>${m.label}</option>`).join("")}</select>
       <label class="effort">Effort <input type="range" id="effortRange" min="0" max="5" step="1" value="${eff}" aria-label="Reasoning effort" aria-valuetext="${EFFORT_LABELS[eff]}"><span class="elabel" id="effortLabel">${EFFORT_LABELS[eff]}</span></label>
       <span class="grow"></span>
       <button class="btn" id="handoffBtn" type="button" title="Start a new session seeded with this one's context">Move context →</button>
@@ -574,7 +587,8 @@ function sendNow(c) {
   if (!text) text = "Please look at the attached file(s).";
   const model = $("#modelSelect")?.value || "";
   const effort = EFFORT_VALUES[Number($("#effortRange")?.value || 0)] || "";
-  doSend(c, text, model, effort, att);
+  const mode = $("#modeSelect")?.value || "";
+  doSend(c, text, model, effort, att, mode);
 }
 function setWorking(on) {
   const box = $("#messages"); if (!box) return;
@@ -586,7 +600,7 @@ function setWorking(on) {
     }
   } else if (w) w.remove();
 }
-async function doSend(c, text, model, effort, attachments) {
+async function doSend(c, text, model, effort, attachments, mode) {
   const sessionId = c.sessionId;
   closeModal();
   const btn = $("#sendBtn");
@@ -602,7 +616,7 @@ async function doSend(c, text, model, effort, attachments) {
   try {
     const r = await fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/send", {
       method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, model, effort, attachments: attachments || [] }),
+      body: JSON.stringify({ message: text, model, effort, mode: mode || "", attachments: attachments || [] }),
     });
     const data = await r.json().catch(() => ({ ok: false, message: "Unexpected response from server." }));
     finish();
