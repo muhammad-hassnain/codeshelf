@@ -37,7 +37,9 @@
     "node": ">=18"
   },
   "os": [
-    "darwin"
+    "darwin",
+    "linux",
+    "win32"
   ],
   "files": [
     "server.js",
