@@ -373,6 +373,7 @@ async function openSession(id) {
     if (seq !== openSeq) return;
     convo.id = id; convo.live = c.live; convo.lastTs = c.lastTs; convo.data = c;
     convo.messages = c.messages; convo.uuids = new Set(c.messages.map((m) => m.uuid));
+    convo.queue = c.queue || [];
     $("#convoTitle").textContent = c.title;
     updateConvoHeader(c); renderMsgFilter(); renderMessages(true); renderComposer(c);
     $("#drawerClose").focus();
@@ -387,6 +388,8 @@ const fetchConvo = (id) => api("/api/sessions/" + encodeURIComponent(id));
 function appendNew(c) {
   if (!c || c.sessionId !== convo.id) return 0;
   convo.data = c;
+  convo.queue = c.queue || [];
+  renderQueue();
   updateConvoHeader(c);
   const box = $("#messages");
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
@@ -405,7 +408,8 @@ function appendNew(c) {
   return fresh.length;
 }
 async function refreshOpenSession() {
-  if (!convo.id || !convo.live || document.hidden || sending) return;
+  if (!convo.id || document.hidden || sending) return;
+  if (!convo.live && !(convo.queue && convo.queue.length)) return;
   try {
     const c = await fetchConvo(convo.id);
     appendNew(c);
@@ -479,6 +483,7 @@ function renderComposer(c) {
       ? `<div class="live-note">${svg("activity", "ic-sm")}<span class="ln-main">Your reply runs as its own turn and shows up below.</span>${meta.rcUrl ? `<a class="applink" href="${esc(meta.rcUrl)}" target="_blank" rel="noopener">Remote Control ↗</a>` : ""}</div>`
       : "";
   el.innerHTML = `${authNote}${liveNote}
+    <div class="queue-panel" id="queuePanel" hidden></div>
     <div class="attach-row" id="attachRow" hidden></div>
     <textarea id="composerText" placeholder="Reply to this session…  (Enter to send · Shift+Enter for a new line · paste or drop images)"></textarea>
     <div class="composer-controls">
@@ -489,6 +494,7 @@ function renderComposer(c) {
       <label class="effort">Effort <input type="range" id="effortRange" min="0" max="5" step="1" value="${eff}" aria-label="Reasoning effort" aria-valuetext="${EFFORT_LABELS[eff]}"><span class="elabel" id="effortLabel">${EFFORT_LABELS[eff]}</span></label>
       <span class="grow"></span>
       <button class="btn" id="handoffBtn" type="button" title="Start a new session seeded with this one's context">Move context →</button>
+      <button class="btn" id="queueBtn" type="button" title="Add to the queue — sent after the current turn finishes">${svg("layers", "ic-sm")} Queue</button>
       <button class="btn primary" id="sendBtn" data-sendlabel="${liveBot ? "Send to live window" : "Send reply"}">${liveBot ? "Send to live window" : "Send reply"}</button>
     </div>
     <input type="file" id="attachInput" multiple style="display:none" accept="image/*,.pdf,.txt,.md,.csv,.json,.log" />`;
@@ -519,8 +525,58 @@ function renderComposer(c) {
   el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dragging"); });
   el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dragging"); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
   $("#sendBtn").addEventListener("click", () => liveBot ? sendToLiveWindow(c) : sendNow(c));
+  $("#queueBtn").addEventListener("click", () => queueNow(c));
   renderAttachRow();
+  renderQueue();
   setTimeout(() => ta.focus(), 20);
+}
+
+// ---- Prompt queue ----
+// Messages you line up while Claude is mid-turn; the server sends them one at a
+// time, each after the previous turn finishes, so Claude is never interrupted.
+async function queueNow(c) {
+  const ta = $("#composerText");
+  const text = (ta?.value || "").trim();
+  if (pendingAttach.length) { toast("Attachments can't be queued — send those directly", "err"); return; }
+  if (!text) { toast("Type a message to queue"); return; }
+  const model = $("#modelSelect")?.value || "";
+  const effort = EFFORT_VALUES[Number($("#effortRange")?.value || 0)] || "";
+  const mode = $("#modeSelect")?.value || "";
+  if (ta) ta.value = "";
+  try {
+    const r = await fetch("/api/sessions/" + encodeURIComponent(c.sessionId) + "/queue", {
+      method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, model, effort, mode }),
+    });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { convo.queue = data.queue || []; renderQueue(); toast("Queued — sends after the current turn", "ok"); }
+    else { if (ta) ta.value = text; toast(data.message || "Couldn't queue", "err"); }
+  } catch (e) { if (ta) ta.value = text; toast(e.message || "Couldn't queue", "err"); }
+}
+function renderQueue() {
+  const panel = $("#queuePanel"); if (!panel) return;
+  const q = convo.queue || [];
+  panel.hidden = q.length === 0;
+  if (!q.length) { panel.innerHTML = ""; return; }
+  panel.innerHTML = `<div class="queue-head">${svg("layers", "ic-sm")} Queue · ${q.length} waiting</div>` +
+    q.map((it, i) => `<div class="queue-item q-${esc(it.status || "queued")}">
+      <span class="qn">${it.status === "sending" ? `<span class="spinner"></span>` : i + 1}</span>
+      <span class="qtext">${esc(it.text)}</span>
+      ${it.status === "error" ? `<span class="qerr" title="${esc(it.error || "Send failed")}">failed</span>` : ""}
+      ${it.status === "sending" ? `<span class="qmark">sending…</span>` : `<button class="qx" data-dequeue="${esc(it.id)}" aria-label="Remove from queue">${svg("x", "ic-sm")}</button>`}
+    </div>`).join("");
+}
+async function dequeue(itemId) {
+  if (!convo.id) return;
+  try {
+    const r = await fetch("/api/sessions/" + encodeURIComponent(convo.id) + "/dequeue", {
+      method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId }),
+    });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { convo.queue = data.queue || []; renderQueue(); }
+    else toast(data.message || "Couldn't remove", "err");
+  } catch (e) { toast(e.message || "Couldn't remove", "err"); }
 }
 
 // ---- Attachments ----
@@ -981,6 +1037,8 @@ document.addEventListener("click", (e) => {
   if (copy) { e.stopPropagation(); navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast("Copied", "ok"), () => toast("Copy failed", "err")); return; }
   const rm = e.target.closest("[data-attach-remove]");
   if (rm) { pendingAttach.splice(Number(rm.dataset.attachRemove), 1); renderAttachRow(); return; }
+  const dq = e.target.closest("[data-dequeue]");
+  if (dq) { e.stopPropagation(); dequeue(dq.dataset.dequeue); return; }
   const pin = e.target.closest("[data-pin]");
   if (pin) { e.stopPropagation(); togglePin(pin.dataset.pin); return; }
   const view = e.target.closest("[data-view]");
