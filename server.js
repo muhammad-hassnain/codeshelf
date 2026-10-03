@@ -1609,17 +1609,14 @@ async function typeIntoLiveWindowInner(host, messages) {
   //    (invisible to the user), THEN flash to the front just long enough to paste,
   //    and restore focus to `prevApp`.
   await new Promise((r) => setTimeout(r, LIVE_FOCUS_MS));
-  console.log(`[live] type host=${host.slice(0, 18)}… prevApp=${JSON.stringify(prevApp)} parts=${messages.length} open=${op.code}`);
   const pasteArgs = () => ["-e", PASTE_SCRIPT, prevApp];
   let os = await runProc("/usr/bin/osascript", pasteArgs());
-  console.log(`[live]   paste#0 code=${os.code} out=${JSON.stringify(os.out.trim())}${os.err.trim() ? ` err=${JSON.stringify(os.err.trim().slice(0, 120))}` : ""}`);
   // Remaining messages (the real prompt after a `/model` switch): a short settle so the
   // command is taken, then paste the next one.
   for (let i = 1; i < messages.length && os.code === 0 && os.out.includes("OK"); i++) {
     await new Promise((r) => setTimeout(r, messages[i - 1].hold ?? 250));
     await runProc("/usr/bin/pbcopy", [], { input: messages[i].text });
     os = await runProc("/usr/bin/osascript", pasteArgs());
-    console.log(`[live]   paste#${i} code=${os.code} out=${JSON.stringify(os.out.trim())}`);
   }
   // Restore the clipboard now that the paste has happened (best-effort).
   if (savedClip) await runProc("/usr/bin/pbcopy", [], { input: savedClip });
