@@ -49,6 +49,7 @@ const P = {
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   check2: '<path d="M20 6 9 17l-5-5"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
 };
 function svg(name, cls = "ic") {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name]}</svg>`;
@@ -126,7 +127,9 @@ const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == n
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
 const state = {
-  sessions: [], counts: {},
+  sessions: [], counts: {}, account: null,
+  // "mine" shows only the signed-in account's sessions (default); "all" shows every account.
+  accountFilter: lsGet("ce-account-filter", "mine"),
   statusFilter: "all", projectFilter: null, search: "",
   pins: new Set(lsGet("ce-pins", [])), firstPoll: true, totals: { fiveHour: 0, week: 0 },
   budgets: { fiveHourPct: 0, weeklyPct: 0, projects: {} }, lastUsage: null,
@@ -135,7 +138,7 @@ const state = {
 // per-project budgets. Advisory: it's CodeShelf's own token accounting, not the plan.
 function projectShares() {
   const byProj = {};
-  for (const s of state.sessions) byProj[s.project] = (byProj[s.project] || 0) + (s.tokWeek || 0);
+  for (const s of scopedSessions()) byProj[s.project] = (byProj[s.project] || 0) + (s.tokWeek || 0);
   const total = state.totals.week || 0;
   const out = {};
   for (const [p, t] of Object.entries(byProj)) out[p] = total ? (100 * t) / total : 0;
@@ -164,10 +167,11 @@ async function loadSessions() {
     const data = await api("/api/sessions");
     state.sessions = data.sessions || [];
     state.counts = data.counts || {};
-    state.totals = data.usageTotals || { fiveHour: 0, week: 0 };
+    state.account = data.account || null;
+    recomputeTotals(); // scoped to the account filter, not the server's all-account totals
     $("#updated").textContent = new Date(data.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     $("#content").setAttribute("aria-busy", "false");
-    renderSignal(); renderChips(); renderUsageByProject();
+    syncAllProjectsToggle(); renderSignal(); renderChips(); renderUsageByProject();
     if (!state.search) renderContent();
     maybeNotify();
     state.firstPoll = false;
@@ -185,13 +189,14 @@ async function loadMeta() {
 }
 
 function renderSignal() {
-  const c = state.counts;
+  // Counts reflect the account scope, so the tiles match what's actually shown.
+  const c = scopedSessions().reduce((a, s) => ((a[s.status] = (a[s.status] || 0) + 1), a), {});
   const tiles = [
     { key: "waiting", label: "Need input", n: c.waiting || 0, cls: "t-wait", ic: "reply", hot: (c.waiting || 0) > 0 },
     { key: "working", label: "Working", n: c.working || 0, cls: "t-work", ic: "activity" },
     { key: "closed", label: "Inactive", n: c.closed || 0, cls: "t-idle", ic: "check" },
   ];
-  const sig = JSON.stringify([tiles.map((t) => t.n), state.statusFilter]);
+  const sig = JSON.stringify([tiles.map((t) => t.n), state.statusFilter, state.accountFilter]);
   if (sig === sigSignal) return;
   sigSignal = sig;
   $("#signal").innerHTML = tiles.map((t) => {
@@ -204,18 +209,37 @@ function renderSignal() {
     </button>`;
   }).join("");
 }
+// Reflect the current account filter on the top-bar "All projects" toggle. On = show
+// every account's sessions; off (default) = only the signed-in account's.
+function syncAllProjectsToggle() {
+  const cb = $("#allProjectsToggle"); if (!cb) return;
+  cb.checked = state.accountFilter === "all";
+  const acct = state.account;
+  cb.closest("label")?.setAttribute("title",
+    acct?.email
+      ? (cb.checked ? "Showing every account's sessions. Off: only " + acct.email : "Showing only " + acct.email + "'s sessions. On: every account")
+      : "On: show sessions from every account. Off: only the account you're signed into.");
+}
+function setAccountFilter(v) {
+  state.accountFilter = v;
+  lsSet("ce-account-filter", v);
+  recomputeTotals();
+  sigContent = sigSignal = sigChips = sigByProj = ""; // force re-render of everything scoped
+  syncAllProjectsToggle(); renderSignal(); renderChips(); renderUsageByProject(); renderContent();
+}
 
 function renderChips() {
+  const scoped = scopedSessions();
   const byProj = {};
-  for (const s of state.sessions) byProj[s.project] = (byProj[s.project] || 0) + 1;
+  for (const s of scoped) byProj[s.project] = (byProj[s.project] || 0) + 1;
   const projects = Object.entries(byProj).sort((a, b) => b[1] - a[1]);
   const over = overBudgetProjects();
-  const sig = JSON.stringify([projects, state.projectFilter, over]);
+  const sig = JSON.stringify([projects, state.projectFilter, over, state.accountFilter]);
   if (sig === sigChips) return;
   sigChips = sig;
   const all = !state.projectFilter;
   $("#projectChips").innerHTML =
-    `<button class="chip ${all ? "active" : ""}" data-project="" aria-pressed="${all}">All<span class="n">${state.sessions.length}</span></button>` +
+    `<button class="chip ${all ? "active" : ""}" data-project="" aria-pressed="${all}">All<span class="n">${scoped.length}</span></button>` +
     projects.map(([p, n]) => {
       const ob = over[p];
       const warn = ob ? `<span class="chip-over" title="Over budget: using ${ob.share}% of this week (budget ${ob.cap}%)">${svg("alert", "ic-sm")}</span>` : "";
@@ -232,8 +256,25 @@ function updateChipFades() {
   el.classList.toggle("cr", el.scrollLeft < max - 4);
 }
 
+// Sessions in scope for the current account filter. "mine" keeps only sessions whose
+// latest transcript marker matches the signed-in account; untagged/other-account ones
+// are hidden until the user flips to "all".
+function scopedSessions() {
+  return state.accountFilter === "all" ? state.sessions : state.sessions.filter((s) => s.mine === true);
+}
+// 5h / weekly token totals for the sessions in scope — so the usage share each session
+// and project shows is relative to the signed-in account's own usage, not everyone's.
+function recomputeTotals() {
+  state.totals = scopedSessions().reduce(
+    (a, s) => ((a.fiveHour += s.tok5h || 0), (a.week += s.tokWeek || 0), a),
+    { fiveHour: 0, week: 0 }
+  );
+}
+function hiddenByAccount() {
+  return state.accountFilter === "all" ? 0 : state.sessions.length - scopedSessions().length;
+}
 function filtered() {
-  let list = state.sessions;
+  let list = scopedSessions();
   if (state.statusFilter !== "all") list = list.filter((s) => s.status === state.statusFilter);
   if (state.projectFilter) list = list.filter((s) => s.project === state.projectFilter);
   return list;
@@ -345,12 +386,17 @@ function footHTML(s) {
     : "";
   const actions = `${queuedInd}${s.pendingTool ? `<span class="tool">${svg("terminal", "ic-sm")} ${esc(s.pendingTool)}</span>` : ""}${s.status === "waiting" ? `<span class="needs">needs input</span>` : ""}${s.live && s.appLink ? `<a class="applink" href="${esc(s.appLink)}" title="Open this live session in the Claude app">${svg("external", "ic-sm")} open live</a>` : ""}`;
   if (!hasUsage && !actions) return "";
+  // Donuts show how much of the CURRENT plan limit this session has used: its share of
+  // the account's tracked tokens × the account's live limit usage (the top gauges). So
+  // the per-session donuts across the account sum to ~the 5h / weekly limit figures.
   const t = state.totals || { fiveHour: 0, week: 0 };
-  const p5 = t.fiveHour ? Math.round((100 * (s.tok5h || 0)) / t.fiveHour) : 0;
-  const pw = t.week ? Math.round((100 * (s.tokWeek || 0)) / t.week) : 0;
+  const u5 = state.lastUsage?.fiveHour?.current || 0; // account's live % of each plan limit
+  const uw = state.lastUsage?.weekly?.current || 0;
+  const p5 = t.fiveHour ? Math.round(((s.tok5h || 0) / t.fiveHour) * u5) : 0;
+  const pw = t.week ? Math.round(((s.tokWeek || 0) / t.week) * uw) : 0;
   const donuts = hasUsage ? `<div class="usage-share">
-    ${donut(p5, "var(--work)", "5h", `${fmtTok(s.tok5h)} tokens — ${p5}% of your last-5h usage`)}
-    ${donut(pw, "var(--accent)", "wk", `${fmtTok(s.tokWeek)} tokens — ${pw}% of your weekly usage`)}
+    ${donut(p5, "var(--work)", "5h", `${fmtTok(s.tok5h)} tokens — about ${p5}% of your current 5-hour limit`)}
+    ${donut(pw, "var(--accent)", "wk", `${fmtTok(s.tokWeek)} tokens — about ${pw}% of your current weekly limit`)}
   </div>` : "<span></span>";
   return `<div class="card-foot">${donuts}<span class="foot-actions">${actions}</span></div>`;
 }
@@ -381,7 +427,7 @@ let sigByProj = "", byProjOpen = lsGet("ce-byproj", false);
 function renderUsageByProject() {
   const el = $("#byProject"); if (!el) return;
   const byP = {};
-  for (const s of state.sessions) {
+  for (const s of scopedSessions()) {
     const p = s.project || "—";
     (byP[p] = byP[p] || { tok5h: 0, tokWeek: 0 });
     byP[p].tok5h += s.tok5h || 0; byP[p].tokWeek += s.tokWeek || 0;
@@ -423,7 +469,13 @@ async function loadUsage() {
 }
 function renderUsage(u) {
   const box = $("#usage");
+  const prev = state.lastUsage;
   state.lastUsage = u;
+  // The card donuts scale by these plan percentages, so refresh the board when they
+  // change (the content signature doesn't track usage on its own).
+  if (u && (!prev || prev.fiveHour?.current !== u.fiveHour?.current || prev.weekly?.current !== u.weekly?.current)) {
+    sigContent = ""; if (!state.search) renderContent();
+  }
   if (!u || !u.available) { box.innerHTML = `<div class="ucard muted" style="grid-column:1/-1">Plan usage history isn't available to read on this machine.</div>`; return; }
   box.innerHTML = gauge("5-hour limit", u.fiveHour, "var(--work)", "var(--work-dot)", usageSub(u, u.fiveHour), state.budgets.fiveHourPct)
     + gauge("Weekly limit", u.weekly, "var(--accent-2)", "var(--accent)", usageSub(u, u.weekly), state.budgets.weeklyPct);
@@ -1746,6 +1798,7 @@ $("#themeBtn").addEventListener("click", cycleTheme);
 $("#notifyBtn").addEventListener("click", toggleNotify);
 $("#accountBtn").addEventListener("click", openAccountModal);
 $("#budgetBtn").addEventListener("click", openBudgetsModal);
+$("#allProjectsToggle")?.addEventListener("change", (e) => setAccountFilter(e.target.checked ? "all" : "mine"));
 $("#newBtn")?.addEventListener("click", () => openNewModal());
 
 // ---------------------------------------------------------------------------
