@@ -24,12 +24,16 @@
           <button class="iconbtn ghost" id="refreshBtn" data-icon="refresh" aria-label="Refresh now" title="Refresh now"></button>
         </div>
         <button class="iconbtn" id="notifyBtn" data-icon="bell" aria-label="Notify me when a session needs me" aria-pressed="false" title="Notify me when a session needs me"></button>
+        <button class="iconbtn" id="accountBtn" data-icon="user" aria-label="Account and login" title="Account & login"></button>
+        <button class="iconbtn" id="budgetBtn" data-icon="target" aria-label="Usage budgets" title="Usage budgets"></button>
         <button class="iconbtn" id="themeBtn" aria-label="Theme" title="Theme"></button>
         <button class="newbtn" id="newBtn" title="Start a new Claude Code session">+ New session</button>
       </div>
     </header>
 
     <section class="usage" id="usage" aria-label="Plan usage"></section>
+
+    <section class="byproj" id="byProject" aria-label="Token usage by project" hidden></section>
 
     <section class="signal" id="signal" aria-label="Status overview"></section>
 
@@ -63,6 +67,7 @@
           <h2 id="convoTitle"></h2>
           <div class="drawer-meta" id="convoMeta"></div>
         </div>
+        <button class="btn ghost" id="handoffBtn" type="button" title="Start a new session seeded with this one's context">Move context →</button>
         <div class="msgfilter" id="msgFilter" role="group" aria-label="Filter messages"></div>
       </div>
       <div class="messages" id="messages" role="log" aria-label="Conversation messages"></div>

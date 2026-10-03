@@ -30,9 +30,9 @@ node server.js          # serves http://127.0.0.1:4178  (or: npm start)
 ### Data model (read-only against `~/.claude`)
 - **Live status:** `~/.claude/sessions/<pid>.json` has a `status` (`busy`/`idle`); the pid is cross-checked for being alive. alive+busy → **Working**, alive+idle → **Need input**, no live process → **Inactive**.
 - **Conversations:** `~/.claude/projects/<project>/<uuid>.jsonl` transcripts (one level deep; deeper files are subagent/workflow journals and are excluded).
-- **Plan usage:** `~/Library/Application Support/Claude/plan-usage-history.json` (macOS).
+- **Plan usage (live):** `claude -p --no-session-persistence "/usage"` — a local command (no model call) reporting the account the CLI is signed into, cached ~45s and de-duplicated across callers. Parsed in `parseUsageText`; reset times via `parseResetTime`. Fallback when the CLI is unusable: the desktop app's `plan-usage-history.json` (macOS `~/Library/Application Support/Claude`), which is written only occasionally and mixes every org the app has signed into — so it's filtered to the CLI's org and flagged `stale`/"may be out of date" in the UI. Never present the history file as current.
 
-CodeShelf **never writes** to `~/.claude`. The only writes it makes are: a reply you send (via the `claude` CLI, which appends to the transcript) and uploaded attachments under `~/.codeshelf/uploads`.
+CodeShelf **never writes** to `~/.claude` itself. Its only writes are: a reply you send (via the `claude` CLI, which appends to the transcript), uploaded attachments under `~/.codeshelf/uploads`, and its own state under `~/.codeshelf` (queue, config, `usage-live.json` sparkline samples). The usage probe runs from `~/.codeshelf/usage-probe` with `--no-session-persistence` so it never creates a transcript (the CLI may leave one empty project folder for that cwd).
 
 ## Hard constraints (do not break)
 
@@ -43,7 +43,7 @@ CodeShelf **never writes** to `~/.claude`. The only writes it makes are: a reply
 
 ## Platform notes
 
-- **macOS-only features:** live-window typing (`open`, `osascript`, `pbcopy`) and the plan-usage panel (reads a macOS path). The session board itself is just file reads and could be adapted elsewhere.
+- **macOS-only features:** live-window typing (`open`, `osascript`, `pbcopy`) and the plan-usage fallback (reads a macOS path; the live `/usage` probe itself is cross-platform). The session board itself is just file reads and could be adapted elsewhere.
 - **Sending requires the `claude` CLI to be logged in** (`claude auth login`) or `ANTHROPIC_API_KEY` set. The desktop app's keychain login does **not** cover headless CLI runs.
 - **Live-window typing needs macOS Accessibility permission** for the process running `node server.js`. Keystrokes only reach the frontmost app, so the automation briefly fronts Claude, pastes, and restores focus; it then confirms the message landed in the transcript before clearing the composer.
 
