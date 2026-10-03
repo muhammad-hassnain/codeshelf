@@ -32,7 +32,7 @@ If you keep several Claude Code agents running, the hard part isn't starting the
 - a reply box that **types straight into the live Claude Code window** (so it also shows up on Remote Control and your phone) — or runs a headless turn when the session is closed;
 - your **plan usage** (5-hour and weekly windows) up top.
 
-It's **zero-dependency** (one `server.js`, no `npm install`), **local-only** (binds to loopback), and never writes to your `~/.claude` files — the only thing it writes is a reply you send on purpose.
+It's **zero-dependency** (one `server.js`, no `npm install`), **local-only** (binds to loopback), and never writes to your `~/.claude` files — the only thing it writes is a reply you send on purpose (plus its own small state under `~/.codeshelf`).
 
 ## Quick start
 
@@ -70,7 +70,7 @@ No build step, no dependencies — just **Node 18+**. (You can also run it with 
 - **Move context →** — spin up a new session seeded with the current one's goal and latest state.
 
 ### Usage & polish
-- **Plan usage panel** — your **5-hour** and **weekly** windows with the current % and a trend sparkline.
+- **Live plan usage** — your current **5-hour** and **weekly** limits with the % used, a "resets in …" countdown and a trend sparkline, read live from `claude /usage` (the account your CLI is signed into), not from a stale file.
 - **Per-session usage** — two small donuts per card show this chat's **share** of your 5-hour and weekly token use.
 - **Themes** — a flat "reading room" palette in **light / dark / follow-system**, native system fonts, no gradients or emoji-as-icons.
 - **Opt-in notifications** when a session flips to needing you.
@@ -85,7 +85,7 @@ All optional — CodeShelf works with zero config.
 | `HOST` | `127.0.0.1` | Bind address — keep it loopback |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores sessions |
 | `CLAUDE_BIN` | auto-detected | Path to the `claude` binary (for replies / new sessions). On Windows, point this at `claude.exe` if auto-detect misses it |
-| `CE_USAGE_FILE` | auto-detected | Path to the desktop app's `plan-usage-history.json` (auto-resolved per OS; set only if yours is non-standard) |
+| `CE_USAGE_FILE` | auto-detected | Fallback only: path to the desktop app's `plan-usage-history.json`, used when the live `claude /usage` read isn't available (auto-resolved per OS) |
 | `CE_ORG` | _(none)_ | Your claude.ai org slug — **set this** to enable the "open in app" deep links and live-window typing |
 | `ANTHROPIC_API_KEY` | — | If set, the `claude` CLI uses it for replies instead of a login |
 

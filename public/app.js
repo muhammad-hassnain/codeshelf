@@ -41,6 +41,14 @@ const P = {
   paperclip: '<path d="M21.4 11 12.2 20.2a6 6 0 0 1-8.5-8.5l9.2-9.1a4 4 0 0 1 5.7 5.6l-9.2 9.2a2 2 0 0 1-2.8-2.9l8.5-8.4"/>',
   mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
   external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>',
+  sliders: '<path d="M4 6h8M16 6h4M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  caret: '<path d="m6 9 6 6 6-6"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  key: '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.5 12.5 8-8"/><path d="m16 7 2.5 2.5"/><path d="m13.5 9.5 2.5 2.5"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.6"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  check2: '<path d="M20 6 9 17l-5-5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
 };
 function svg(name, cls = "ic") {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name]}</svg>`;
@@ -76,13 +84,43 @@ const STATUS = {
   closed: { label: "Inactive", cls: "s-closed", group: "Inactive", led: "var(--idle-dot)" },
 };
 const GROUP_ORDER = ["waiting", "working", "running", "closed"];
+// Flat list with optional `group` (for <optgroup>s). Aliases (opus/sonnet/…) always
+// pick the latest in that family; the claude-… ids pin a specific version.
 const MODELS = [
-  { v: "", label: "Default model" }, { v: "opus", label: "Opus" }, { v: "sonnet", label: "Sonnet" },
-  { v: "haiku", label: "Haiku" }, { v: "fable", label: "Fable" },
+  { v: "", label: "Default model" },
+  { v: "opus", label: "Opus (latest)", group: "Opus" },
+  { v: "claude-opus-5-5", label: "Opus 5.5", group: "Opus" },
+  { v: "claude-opus-4-8", label: "Opus 4.8", group: "Opus" },
+  { v: "claude-opus-4-7", label: "Opus 4.7", group: "Opus" },
+  { v: "sonnet", label: "Sonnet (latest)", group: "Sonnet" },
+  { v: "claude-sonnet-5-5", label: "Sonnet 5.5", group: "Sonnet" },
+  { v: "claude-sonnet-4-5", label: "Sonnet 4.5", group: "Sonnet" },
+  { v: "haiku", label: "Haiku (latest)", group: "Haiku" },
+  { v: "claude-haiku-4-5", label: "Haiku 4.5", group: "Haiku" },
+  { v: "fable", label: "Fable (latest)", group: "Fable" },
+  { v: "claude-fable-5-1", label: "Fable 5.1", group: "Fable" },
 ];
+// Build <option>/<optgroup> markup for a model <select>, marking `selected`.
+function modelOptionsHTML(selected) {
+  let html = "", curGroup = null, open = false;
+  for (const m of MODELS) {
+    const g = m.group || null;
+    if (g !== curGroup) {
+      if (open) { html += "</optgroup>"; open = false; }
+      if (g) { html += `<optgroup label="${esc(g)}">`; open = true; }
+      curGroup = g;
+    }
+    html += `<option value="${esc(m.v)}" ${m.v === selected ? "selected" : ""}>${esc(m.label)}</option>`;
+  }
+  if (open) html += "</optgroup>";
+  return html;
+}
 const EFFORT_VALUES = ["", "low", "medium", "high", "xhigh", "max"];
 const PMODES = [{ v: "", label: "Default mode" }, { v: "auto", label: "Auto" }, { v: "acceptEdits", label: "Accept edits" }, { v: "plan", label: "Plan" }];
-const EFFORT_LABELS = ["Default", "Low", "Medium", "High", "X-High", "Max"];
+// Display names match the desktop app's effort picker; the values sent are the CLI's
+// own --effort tokens (low, medium, high, xhigh, max). "Extra" is the desktop label
+// for xhigh. Index 0 is "Default" — the model's own effort when --effort isn't passed.
+const EFFORT_LABELS = ["Default", "Low", "Medium", "High", "Extra", "Max"];
 
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -91,7 +129,30 @@ const state = {
   sessions: [], counts: {},
   statusFilter: "all", projectFilter: null, search: "",
   pins: new Set(lsGet("ce-pins", [])), firstPoll: true, totals: { fiveHour: 0, week: 0 },
+  budgets: { fiveHourPct: 0, weeklyPct: 0, projects: {} }, lastUsage: null,
 };
+// Each project's share (%) of this week's tracked token usage — the basis for
+// per-project budgets. Advisory: it's CodeShelf's own token accounting, not the plan.
+function projectShares() {
+  const byProj = {};
+  for (const s of state.sessions) byProj[s.project] = (byProj[s.project] || 0) + (s.tokWeek || 0);
+  const total = state.totals.week || 0;
+  const out = {};
+  for (const [p, t] of Object.entries(byProj)) out[p] = total ? (100 * t) / total : 0;
+  return out;
+}
+// Projects currently over their budgeted weekly share.
+function overBudgetProjects() {
+  const shares = projectShares();
+  const over = {};
+  for (const [p, cap] of Object.entries(state.budgets.projects || {})) {
+    if (cap > 0 && (shares[p] || 0) >= cap) over[p] = { share: Math.round(shares[p] || 0), cap };
+  }
+  return over;
+}
+async function loadBudgets() {
+  try { state.budgets = await api("/api/budgets"); renderChips(); if (state.lastUsage) renderUsage(state.lastUsage); } catch {}
+}
 let meta = { loggedIn: true, loginCmd: "" };
 let sigSignal = "", sigChips = "", sigContent = "";
 
@@ -106,7 +167,7 @@ async function loadSessions() {
     state.totals = data.usageTotals || { fiveHour: 0, week: 0 };
     $("#updated").textContent = new Date(data.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     $("#content").setAttribute("aria-busy", "false");
-    renderSignal(); renderChips();
+    renderSignal(); renderChips(); renderUsageByProject();
     if (!state.search) renderContent();
     maybeNotify();
     state.firstPoll = false;
@@ -148,13 +209,19 @@ function renderChips() {
   const byProj = {};
   for (const s of state.sessions) byProj[s.project] = (byProj[s.project] || 0) + 1;
   const projects = Object.entries(byProj).sort((a, b) => b[1] - a[1]);
-  const sig = JSON.stringify([projects, state.projectFilter]);
+  const over = overBudgetProjects();
+  const sig = JSON.stringify([projects, state.projectFilter, over]);
   if (sig === sigChips) return;
   sigChips = sig;
   const all = !state.projectFilter;
   $("#projectChips").innerHTML =
     `<button class="chip ${all ? "active" : ""}" data-project="" aria-pressed="${all}">All<span class="n">${state.sessions.length}</span></button>` +
-    projects.map(([p, n]) => `<button class="chip ${state.projectFilter === p ? "active" : ""}" data-project="${esc(p)}" aria-pressed="${state.projectFilter === p}">${esc(p)}<span class="n">${n}</span></button>`).join("");
+    projects.map(([p, n]) => {
+      const ob = over[p];
+      const warn = ob ? `<span class="chip-over" title="Over budget: using ${ob.share}% of this week (budget ${ob.cap}%)">${svg("alert", "ic-sm")}</span>` : "";
+      const alabel = ob ? ` aria-label="${esc(p)}, ${n} sessions — over budget, using ${ob.share}% of this week (budget ${ob.cap}%)"` : "";
+      return `<button class="chip ${state.projectFilter === p ? "active" : ""} ${ob ? "over" : ""}" data-project="${esc(p)}" aria-pressed="${state.projectFilter === p}"${alabel}>${warn}${esc(p)}<span class="n">${n}</span></button>`;
+    }).join("");
   requestAnimationFrame(updateChipFades);
 }
 // Fade the chip row's edges only where there's more to scroll, so a clipped row reads as scrollable, not broken.
@@ -219,6 +286,34 @@ function modeBadge(mode) {
   const cls = /^[a-zA-Z]+$/.test(mode) ? mode : "other";
   return `<span class="mode mode-${cls}" title="Permission mode: ${esc(label)}">${esc(label)}</span>`;
 }
+// Friendly model names: "claude-opus-4-8" -> "Opus 4.8". The table covers today;
+// the regex covers future point releases; the fallback never leaks the raw id.
+const MODEL_LABELS = {
+  "claude-opus-4-8": "Opus 4.8", "claude-opus-4-7": "Opus 4.7",
+  "claude-sonnet-4-5": "Sonnet 4.5", "claude-haiku-4-5": "Haiku 4.5",
+  "claude-fable-5": "Fable 5", "claude-fable-5-1": "Fable 5.1",
+};
+function modelLabel(raw) {
+  if (!raw || raw === "<synthetic>") return "";
+  if (MODEL_LABELS[raw]) return MODEL_LABELS[raw];
+  // Optional trailing date stamp (claude-haiku-4-5-20251001) must not be read as a minor version.
+  const m = raw.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/i);
+  if (m) return m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "");
+  return raw.replace(/^claude-/, "");
+}
+// One quiet "config" chip: what model + permission mode this session is running.
+// A different axis from status, so it reads as metadata, not a signal.
+function aiConfigChip(model, mode) {
+  const ml = modelLabel(model);
+  const modeLbl = mode ? (MODE_LABELS[mode] || (mode[0].toUpperCase() + mode.slice(1))) : "";
+  if (!ml && !modeLbl) return "";
+  const modeCls = mode && /^[a-zA-Z]+$/.test(mode) ? mode : "other";
+  const title = [ml ? `Model: ${ml}` : "", modeLbl ? `Permission mode: ${modeLbl}` : ""].filter(Boolean).join(" · ");
+  const modelPart = ml ? `<span class="ai-model">${esc(ml)}</span>` : "";
+  const sep = ml && modeLbl ? `<span class="ai-sep"></span>` : "";
+  const modePart = modeLbl ? `<span class="ai-mode mode-${modeCls}"><span class="ai-dot"></span>${esc(modeLbl)}</span>` : "";
+  return `<span class="aiconfig" title="${esc(title)}">${modelPart}${sep}${modePart}</span>`;
+}
 function card(s) {
   const st = STATUS[s.status] || STATUS.closed;
   const who = s.lastRole === "assistant" ? "Claude" : "You";
@@ -231,7 +326,7 @@ function card(s) {
     </div>
     <div class="card-sub">
       <span class="status ${st.cls}">${statusIcon(s.status)}${st.label}</span>
-      ${modeBadge(s.permissionMode)}
+      ${aiConfigChip(s.model, s.permissionMode)}
       <span class="proj">${esc(s.project)}</span>
       ${s.gitBranch ? `<span class="meta">${svg("branch", "ic-sm")} ${esc(s.gitBranch)}</span>` : ""}
       <span class="meta">${s.messageCount} msg${s.messageCount === 1 ? "" : "s"}</span>
@@ -243,7 +338,12 @@ function card(s) {
 }
 function footHTML(s) {
   const hasUsage = s.tok5h || s.tokWeek;
-  const actions = `${s.pendingTool ? `<span class="tool">${svg("terminal", "ic-sm")} ${esc(s.pendingTool)}</span>` : ""}${s.status === "waiting" ? `<span class="needs">needs input</span>` : ""}${s.live && s.appLink ? `<a class="applink" href="${esc(s.appLink)}" title="Open this live session in the Claude app">${svg("external", "ic-sm")} open live</a>` : ""}`;
+  const queuedInd = s.queued
+    ? (s.queueStuck
+        ? `<span class="queued-ind stuck" title="Queue paused on a failed message — open to retry or remove it">${svg("alert", "ic-sm")} queue paused</span>`
+        : `<span class="queued-ind" title="${s.queued} message${s.queued === 1 ? "" : "s"} queued to send">${svg("layers", "ic-sm")} ${s.queued} queued</span>`)
+    : "";
+  const actions = `${queuedInd}${s.pendingTool ? `<span class="tool">${svg("terminal", "ic-sm")} ${esc(s.pendingTool)}</span>` : ""}${s.status === "waiting" ? `<span class="needs">needs input</span>` : ""}${s.live && s.appLink ? `<a class="applink" href="${esc(s.appLink)}" title="Open this live session in the Claude app">${svg("external", "ic-sm")} open live</a>` : ""}`;
   if (!hasUsage && !actions) return "";
   const t = state.totals || { fiveHour: 0, week: 0 };
   const p5 = t.fiveHour ? Math.round((100 * (s.tok5h || 0)) / t.fiveHour) : 0;
@@ -274,6 +374,38 @@ function fmtTok(n) {
   if (n < 1e6) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0).replace(/\.0$/, "") + "k";
   return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
 }
+// Live "where are my tokens going" breakdown by project, from the same per-session
+// token sums the cards use. Collapsible; refreshes on every poll. "5h"/"week" are
+// CodeShelf's own accounting (new tokens, cache-reads excluded) — not the plan meter.
+let sigByProj = "", byProjOpen = lsGet("ce-byproj", false);
+function renderUsageByProject() {
+  const el = $("#byProject"); if (!el) return;
+  const byP = {};
+  for (const s of state.sessions) {
+    const p = s.project || "—";
+    (byP[p] = byP[p] || { tok5h: 0, tokWeek: 0 });
+    byP[p].tok5h += s.tok5h || 0; byP[p].tokWeek += s.tokWeek || 0;
+  }
+  const rows = Object.entries(byP).filter(([, v]) => v.tokWeek > 0 || v.tok5h > 0);
+  if (!rows.length) { el.hidden = true; el.innerHTML = ""; sigByProj = ""; return; }
+  el.hidden = false;
+  const any5h = rows.some(([, v]) => v.tok5h > 0);
+  rows.sort((a, b) => any5h ? (b[1].tok5h - a[1].tok5h) || (b[1].tokWeek - a[1].tokWeek) : b[1].tokWeek - a[1].tokWeek);
+  const tot5 = rows.reduce((a, [, v]) => a + v.tok5h, 0);
+  const totW = rows.reduce((a, [, v]) => a + v.tokWeek, 0);
+  const maxW = Math.max(...rows.map(([, v]) => v.tokWeek), 1);
+  const sig = JSON.stringify([byProjOpen, rows.map(([p, v]) => [p, v.tok5h, v.tokWeek])]);
+  if (sig === sigByProj) return;
+  sigByProj = sig;
+  const head = `<button class="bp-head" id="byProjToggle" aria-expanded="${byProjOpen}" aria-controls="byProjList">${svg("caret", "ic-sm")}<span class="bp-title">Tokens by project</span><span class="bp-sum">5h <b>${fmtTok(tot5)}</b> · week <b>${fmtTok(totW)}</b></span></button>`;
+  const body = byProjOpen ? `<div class="bp-list" id="byProjList">
+      <div class="bp-row bp-colhead"><span class="bp-name"></span><span class="bp-bar" aria-hidden="true"></span><span class="bp-nums"><span class="bp-5h">5h</span><span class="bp-wk">week</span></span></div>
+      ${rows.slice(0, 12).map(([p, v]) => {
+        const w = Math.round((100 * v.tokWeek) / maxW);
+        return `<div class="bp-row"><span class="bp-name" title="${esc(p)}">${esc(p)}</span><span class="bp-bar" aria-hidden="true"><span class="bp-fill" style="width:${w}%"></span></span><span class="bp-nums"><span class="bp-5h" title="last 5 hours">${v.tok5h ? fmtTok(v.tok5h) : "—"}</span><span class="bp-wk" title="this week">${fmtTok(v.tokWeek)}</span></span></div>`;
+      }).join("")}</div>` : "";
+  el.innerHTML = head + body;
+}
 
 function emptyState(icon, title, sub) {
   return `<div class="empty-state"><span class="es-ic">${svg(icon, "ic")}</span><div class="es-title">${esc(title)}</div>${sub ? `<div class="es-sub">${esc(sub)}</div>` : ""}</div>`;
@@ -291,19 +423,44 @@ async function loadUsage() {
 }
 function renderUsage(u) {
   const box = $("#usage");
+  state.lastUsage = u;
   if (!u || !u.available) { box.innerHTML = `<div class="ucard muted" style="grid-column:1/-1">Plan usage history isn't available to read on this machine.</div>`; return; }
-  const upd = u.updatedAt ? "updated " + timeAgo(u.updatedAt) : "";
-  box.innerHTML = gauge("Last 5 hours", u.fiveHour, "var(--work)", "var(--work-dot)", upd) + gauge("This week", u.weekly, "var(--accent-2)", "var(--accent)", upd);
+  box.innerHTML = gauge("5-hour limit", u.fiveHour, "var(--work)", "var(--work-dot)", usageSub(u, u.fiveHour), state.budgets.fiveHourPct)
+    + gauge("Weekly limit", u.weekly, "var(--accent-2)", "var(--accent)", usageSub(u, u.weekly), state.budgets.weeklyPct);
 }
-function gauge(label, d, strong, soft, upd) {
+// "resets in 31m" / "resets in 2d 1h" — the countdown to a limit window's reset.
+function fmtResetIn(ts) {
+  const ms = ts - Date.now();
+  if (!(ms > 0)) return "resetting now";
+  const m = Math.round(ms / 60000);
+  if (m < 60) return "resets in " + Math.max(1, m) + "m";
+  const h = Math.floor(m / 60);
+  if (h < 24) return "resets in " + h + "h" + (m % 60 ? " " + (m % 60) + "m" : "");
+  const d = Math.floor(h / 24);
+  return "resets in " + d + "d" + (h % 24 ? " " + (h % 24) + "h" : "");
+}
+// Live reading → the window's reset countdown. A stale/fallback reading says so, since
+// a number that is hours old (or from the app's history file) can be well off.
+function usageSub(u, d) {
+  if (u.live) return d.resetsAt ? fmtResetIn(d.resetsAt) : "live";
+  return (u.updatedAt ? "last read " + timeAgo(u.updatedAt) : "not live") + " · may be out of date";
+}
+// `cap` is an optional budget (% of plan limit). When set, the gauge shows a target
+// marker and turns urgent + "over budget" once usage reaches it.
+function gauge(label, d, strong, soft, upd, cap = 0) {
   const pct = Math.round(d.current || 0);
-  const col = pct >= 90 ? "var(--urgent)" : strong;
-  const dot = pct >= 90 ? "var(--urgent)" : soft;
-  return `<div class="ucard" style="--uc:${col}" aria-label="${label}: ${pct}% used">
+  const over = cap > 0 && pct >= cap;
+  const col = over || pct >= 90 ? "var(--urgent)" : strong;
+  const dot = over || pct >= 90 ? "var(--urgent)" : soft;
+  const marker = cap > 0 ? `<div class="ucap" style="left:${Math.min(100, cap)}%" title="Budget: ${cap}%"></div>` : "";
+  const budgetNote = cap > 0
+    ? (over ? `<span class="ubudget over">${svg("alert", "ic-sm")} over budget (${cap}%)</span>` : `<span class="ubudget">budget ${cap}%</span>`)
+    : "";
+  return `<div class="ucard" style="--uc:${col}" aria-label="${label}: ${pct}% used${cap ? `, budget ${cap}%${over ? " — over budget" : ""}` : ""}">
     <div class="uinfo">
-      <div class="ulabel"><span class="led" style="background:${dot}"></span>${label}</div>
+      <div class="ulabel"><span class="led" style="background:${dot}"></span>${label}${budgetNote}</div>
       <div class="urow"><span class="upct">${pct}%</span><span class="usub">${upd}</span></div>
-      <div class="ubar"><div class="ufill" style="width:${Math.min(100, pct)}%"></div></div>
+      <div class="ubar">${marker}<div class="ufill" style="width:${Math.min(100, pct)}%"></div></div>
     </div>
     <div class="uspark" role="img" aria-label="${label} trend">${sparkline(d.series, col)}</div>
   </div>`;
@@ -374,6 +531,7 @@ async function openSession(id) {
     convo.id = id; convo.live = c.live; convo.lastTs = c.lastTs; convo.data = c;
     convo.messages = c.messages; convo.uuids = new Set(c.messages.map((m) => m.uuid));
     convo.queue = c.queue || [];
+    convo.bootId = c.bootId;
     $("#convoTitle").textContent = c.title;
     updateConvoHeader(c); renderMsgFilter(); renderMessages(true); renderComposer(c);
     $("#drawerClose").focus();
@@ -387,9 +545,22 @@ const fetchConvo = (id) => api("/api/sessions/" + encodeURIComponent(id));
 // Append any messages we haven't shown yet; returns how many arrived.
 function appendNew(c) {
   if (!c || c.sessionId !== convo.id) return 0;
+  // The queue persists across restarts, so a bootId change normally recovers it.
+  // Only if it came back empty despite us having had items did persistence fail —
+  // then offer to restore from what the client still holds.
+  if (convo.bootId && c.bootId && c.bootId !== convo.bootId && convo.queue?.length && !(c.queue && c.queue.length)) {
+    const lost = convo.queue.slice();
+    toastAction("Queued messages were lost on restart", "Restore", () => {
+      lost.forEach((it) => postQueue(convo.data, it.text, it.model || "", it.effort || "", it.mode || ""));
+    }, "err");
+  }
+  if (c.bootId) convo.bootId = c.bootId;
   convo.data = c;
   convo.queue = c.queue || [];
   renderQueue();
+  // If a queued send failed on auth, refresh meta so the login banner appears (the
+  // direct-send path gets this; the queue drains server-side, so pull it in here).
+  if (meta.loggedIn && (convo.queue || []).some((it) => it.status === "error" && /not logged in|sign ?in|credential|unauthor|auth/i.test(it.error || ""))) loadMeta();
   updateConvoHeader(c);
   const box = $("#messages");
   const near = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
@@ -418,8 +589,11 @@ async function refreshOpenSession() {
 }
 function updateConvoHeader(c) {
   const st = STATUS[c.status] || STATUS.closed;
-  const mode = c.permissionMode || state.sessions.find((x) => x.sessionId === c.sessionId)?.permissionMode;
-  $("#convoMeta").innerHTML = `<span class="proj">${esc(c.project)}</span><span class="status ${st.cls}" style="font-size:10px">${statusIcon(c.status)}${st.label}</span>${modeBadge(mode)}<span class="meta" style="font-family:var(--mono)">${c.totalMessages} messages</span>${c.truncated ? `<span>showing last ${c.returnedMessages}</span>` : ""}`;
+  const other = state.sessions.find((x) => x.sessionId === c.sessionId);
+  const mode = c.permissionMode || other?.permissionMode;
+  const model = c.model || other?.model;
+  $("#convoMeta").innerHTML = `<span class="proj">${esc(c.project)}</span><span class="status ${st.cls}" style="font-size:10px">${statusIcon(c.status)}${st.label}</span>${aiConfigChip(model, mode)}<span class="meta" style="font-family:var(--mono)">${c.totalMessages} messages</span>${c.truncated ? `<span>showing last ${c.returnedMessages}</span>` : ""}`;
+  syncPrimary(c);
 }
 function renderMsgFilter() {
   $("#msgFilter").innerHTML =
@@ -470,113 +644,362 @@ function renderBlock(b) {
 
 function renderComposer(c) {
   const el = $("#composer");
+  // Preserve a draft across re-renders (auth-state changes rebuild the composer):
+  // losing what someone is typing is the worst break for a reply tool.
+  const prevTa = $("#composerText");
+  const prevVal = prevTa ? prevTa.value : "";
+  const prevStart = prevTa ? prevTa.selectionStart : null;
+  const prevEnd = prevTa ? prevTa.selectionEnd : null;
   const chosen = lsGet("ce-model", "");
   const eff = Math.max(0, Math.min(5, lsGet("ce-effort", 0)));
+  const uc = !!lsGet("ce-ultracode", false);
   const sessMode = state.sessions.find((x) => x.sessionId === c.sessionId)?.permissionMode || "";
   const curMode = PMODES.some((m) => m.v === sessMode) ? sessMode : "";
-  const authNote = !meta.loggedIn ? authNoteHTML() : "";
   // Live-window typing uses macOS GUI automation, so offer it only on macOS.
   const liveBot = c.live && !!c.appLink && meta.platform !== "win32" && meta.platform !== "linux";
+  // A live-window session types into the already-signed-in desktop app, so it needs
+  // no CLI login — don't nag about one. The banner is only for the headless path.
+  const authNote = (!meta.loggedIn && !liveBot) ? authNoteHTML() : "";
   const liveNote = liveBot
     ? `<div class="live-note">${svg("activity", "ic-sm")}<span class="ln-main">Typed into the live Claude window — syncs to Remote Control &amp; phone, and the reply streams in here. Claude briefly comes forward, then focus returns to your window.</span><button type="button" class="applink ln-toggle" id="liveDetailsBtn" aria-expanded="false" aria-controls="liveMore">Details</button><div class="ln-more" id="liveMore" hidden>First use asks for macOS Accessibility permission (once). Attachments can't be typed in — <button type="button" class="applink" id="headlessLink" title="Run the reply as a separate headless turn instead">send a separate turn here</button> for those${meta.rcUrl ? ` · <a class="applink" href="${esc(meta.rcUrl)}" target="_blank" rel="noopener">Remote Control ↗</a>` : ""}.</div></div>`
-    : c.live
+    : (c.live && meta.loggedIn)
       ? `<div class="live-note">${svg("activity", "ic-sm")}<span class="ln-main">Your reply runs as its own turn and shows up below.</span>${meta.rcUrl ? `<a class="applink" href="${esc(meta.rcUrl)}" target="_blank" rel="noopener">Remote Control ↗</a>` : ""}</div>`
       : "";
   el.innerHTML = `${authNote}${liveNote}
-    <div class="queue-panel" id="queuePanel" hidden></div>
+    <div class="composer-shell">
+      <div class="queue-panel" id="queuePanel" hidden></div>
+      <div class="queue-hint" id="queueHint" hidden></div>
+      <textarea id="composerText" placeholder="Reply to this session…  (Enter sends · Shift+Enter for a new line · paste or drop images)"></textarea>
+    </div>
     <div class="attach-row" id="attachRow" hidden></div>
-    <textarea id="composerText" placeholder="Reply to this session…  (Enter to send · Shift+Enter for a new line · paste or drop images)"></textarea>
     <div class="composer-controls">
       <button class="cbtn" id="attachBtn" type="button" aria-label="Attach image or file" title="Attach image / file">${svg("paperclip", "ic-sm")}</button>
       <button class="cbtn" id="micBtn" type="button" aria-pressed="false" aria-label="Dictate (voice to text)" title="Dictate — voice to text">${svg("mic", "ic-sm")}</button>
-      <select class="model-select" id="modelSelect" aria-label="Model">${MODELS.map((m) => `<option value="${m.v}" ${m.v === chosen ? "selected" : ""}>${m.label}</option>`).join("")}</select>
-      <select class="model-select" id="modeSelect" aria-label="Permission mode" title="Permission mode for this reply (switches the session's mode when sent)">${PMODES.map((m) => `<option value="${m.v}" ${m.v === curMode ? "selected" : ""}>${m.label}</option>`).join("")}</select>
-      <label class="effort">Effort <input type="range" id="effortRange" min="0" max="5" step="1" value="${eff}" aria-label="Reasoning effort" aria-valuetext="${EFFORT_LABELS[eff]}"><span class="elabel" id="effortLabel">${EFFORT_LABELS[eff]}</span></label>
+      <div class="pop-wrap">
+        <button class="turn-settings" id="turnBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Model, mode & effort for your reply">${svg("sliders", "ic-sm")}<span class="ts-sum" id="tsSummary"></span>${svg("caret", "ic-sm")}</button>
+        <div class="settings-pop" id="settingsPop" role="group" aria-label="Reply settings" hidden>
+          <label class="sp-row"><span class="sp-lbl">Model</span><select class="model-select" id="modelSelect">${modelOptionsHTML(chosen)}</select></label>
+          <label class="sp-row"><span class="sp-lbl">Permission mode</span><select class="model-select" id="modeSelect" title="Switches the session's mode when sent">${PMODES.map((m) => `<option value="${m.v}" ${m.v === curMode ? "selected" : ""}>${m.label}</option>`).join("")}</select></label>
+          <label class="sp-row"><span class="sp-lbl">Effort · <span class="elabel" id="effortLabel">${EFFORT_LABELS[eff]}</span></span><input type="range" id="effortRange" min="0" max="5" step="1" value="${eff}" aria-label="Reasoning effort" aria-valuetext="${EFFORT_LABELS[eff]}"></label>
+          <label class="sp-row sp-switch"><span class="sp-lbl">Ultracode <span class="sp-sub">adds the <code>ultracode</code> keyword — Workflow-tool mode, xhigh effort</span></span><input type="checkbox" id="ultracodeToggle" ${uc ? "checked" : ""} aria-label="Ultracode mode"></label>
+        </div>
+      </div>
       <span class="grow"></span>
-      <button class="btn" id="handoffBtn" type="button" title="Start a new session seeded with this one's context">Move context →</button>
-      <button class="btn" id="queueBtn" type="button" title="Add to the queue — sent after the current turn finishes">${svg("layers", "ic-sm")} Queue</button>
-      <button class="btn primary" id="sendBtn" data-sendlabel="${liveBot ? "Send to live window" : "Send reply"}">${liveBot ? "Send to live window" : "Send reply"}</button>
+      <button class="btn stop" id="stopBtn" type="button" hidden title="Interrupt the running turn (sends Escape to the live window)">${svg("stop", "ic-sm")} Stop</button>
+      <div class="send-split">
+        <button class="btn primary" id="sendBtn" type="button" data-sendlabel="${liveBot ? "Send to live window" : "Send reply"}">${liveBot ? "Send to live window" : "Send reply"}</button>
+        <button class="btn primary caret" id="primaryMore" type="button" aria-haspopup="true" aria-expanded="false" aria-label="More send options">${svg("caret", "ic-sm")}</button>
+        <div class="send-menu" id="sendMenu" role="menu" hidden></div>
+      </div>
     </div>
     <input type="file" id="attachInput" multiple style="display:none" accept="image/*,.pdf,.txt,.md,.csv,.json,.log" />`;
-  $("#handoffBtn").addEventListener("click", () => openNewModal(c.sessionId, c.title));
   $("#liveDetailsBtn")?.addEventListener("click", () => {
     const more = $("#liveMore"), b = $("#liveDetailsBtn"); if (!more) return;
     const show = more.hidden; more.hidden = !show; b.setAttribute("aria-expanded", String(show)); b.textContent = show ? "Hide" : "Details";
   });
   $("#headlessLink")?.addEventListener("click", () => sendNow(c)); // headless fallback (files, or if the bot fails)
-  $("#modelSelect").addEventListener("change", (e) => lsSet("ce-model", e.target.value));
+  $("#modelSelect").addEventListener("change", (e) => { lsSet("ce-model", e.target.value); updateTurnSummary(); });
+  $("#modeSelect").addEventListener("change", updateTurnSummary);
   const range = $("#effortRange");
   range.addEventListener("input", (e) => {
     const i = Number(e.target.value); lsSet("ce-effort", i);
-    $("#effortLabel").textContent = EFFORT_LABELS[i]; range.setAttribute("aria-valuetext", EFFORT_LABELS[i]);
+    $("#effortLabel").textContent = EFFORT_LABELS[i]; range.setAttribute("aria-valuetext", EFFORT_LABELS[i]); updateTurnSummary();
   });
+  $("#ultracodeToggle")?.addEventListener("change", (e) => { lsSet("ce-ultracode", e.target.checked); updateTurnSummary(); });
+  $("#turnBtn").addEventListener("click", () => togglePopover($("#turnBtn"), $("#settingsPop")));
+  $("#primaryMore").addEventListener("click", openSendMenu);
   $("#attachBtn").addEventListener("click", () => $("#attachInput").click());
   $("#attachInput").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
   $("#micBtn").addEventListener("click", toggleMic);
   const ta = $("#composerText");
-  // Enter sends; Shift+Enter inserts a newline. No confirmation step.
-  // For a live session, Enter types straight into the live Claude window; otherwise it runs a headless reply.
-  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); liveBot ? sendToLiveWindow(c) : sendNow(c); } });
+  // Enter triggers the primary action, which adapts to status: Queue while Claude
+  // is working, Send otherwise. Shift+Enter inserts a newline. No confirmation.
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); doPrimary(); } });
   ta.addEventListener("paste", (e) => {
     const imgs = [...(e.clipboardData?.items || [])].filter((it) => it.kind === "file" && it.type.startsWith("image/"));
     if (imgs.length) { e.preventDefault(); addFiles(imgs.map((it) => it.getAsFile()).filter(Boolean)); }
   });
-  el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dragging"); });
-  el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dragging"); });
-  el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dragging"); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
-  $("#sendBtn").addEventListener("click", () => liveBot ? sendToLiveWindow(c) : sendNow(c));
-  $("#queueBtn").addEventListener("click", () => queueNow(c));
+  // #composer is a static element (not replaced by innerHTML), so bind its
+  // container-level drag/drop ONCE — re-binding every render leaked handlers and
+  // made a dropped file upload N times.
+  if (!el.dataset.dndWired) {
+    el.dataset.dndWired = "1";
+    el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("dragging"); });
+    el.addEventListener("dragleave", (e) => { if (e.target === el) el.classList.remove("dragging"); });
+    el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("dragging"); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
+  }
+  $("#sendBtn").addEventListener("click", doPrimary);
+  $("#stopBtn").addEventListener("click", () => stopLive(c));
+  // Restore any draft the previous composer held (and the caret position).
+  if (prevVal) { ta.value = prevVal; if (prevStart != null) { try { ta.setSelectionRange(prevStart, prevEnd); } catch {} } }
+  updateTurnSummary();
+  syncPrimary(c);
   renderAttachRow();
   renderQueue();
   setTimeout(() => ta.focus(), 20);
 }
+// The primary action adapts to the session's state so the user never has to
+// choose "queue vs send": it reads "Queue" whenever sending now would collide —
+// Claude is mid-turn, OR earlier queued messages are still draining — and only
+// becomes "Send" once the session is free AND the queue is empty.
+function isLiveBot(c) { return !!(c && c.live && c.appLink && meta.platform !== "win32" && meta.platform !== "linux"); }
+// Any message still waiting, in flight, OR parked on an error — sending a new one
+// now would jump ahead of it, so the primary stays "Queue" and new messages park.
+function queueActive() { return (convo.queue || []).some((it) => it.status === "queued" || it.status === "sending" || it.status === "error"); }
+function shouldQueue(c) { return !!(c && (c.status === "working" || queueActive())); }
+function doPrimary() {
+  const c = convo.data; if (!c) return;
+  if (shouldQueue(c)) queueNow(c);
+  else isLiveBot(c) ? sendToLiveWindow(c) : sendNow(c);
+}
+// The overflow "Send this draft now" escape hatch — send the drafted text even
+// though it interrupts the turn / jumps the queue. No-op guard lives in sendNow.
+function forceSend() {
+  const c = convo.data; if (!c) return;
+  if (!($("#composerText")?.value || "").trim()) { toast("Type a message in the box first"); return; }
+  isLiveBot(c) ? sendToLiveWindow(c) : sendNow(c);
+}
+// Flip the primary button, its overflow menu, and the "why Queue?" hint to match
+// state. Called on open and on every poll, so when the turn ends (and the queue
+// drains) the button reverts to Send on its own and Enter's meaning follows.
+function syncPrimary(c) {
+  const pb = $("#sendBtn"), menu = $("#sendMenu"), more = $("#primaryMore"); if (!pb) return;
+  if (sending || liveSending) return; // don't stomp the in-progress spinner/label
+  const sendLabel = isLiveBot(c) ? "Send to live window" : "Send reply";
+  pb.dataset.sendlabel = sendLabel;
+  const working = !!(c && c.status === "working");
+  const qActive = queueActive();
+  const qStuck = (convo.queue || []).some((it) => it.status === "error");
+  // Stop only applies to a live window we can reach (Escape is typed into the app);
+  // a headless turn is a separate process, so there's nothing to Escape there.
+  const stopBtn = $("#stopBtn");
+  if (stopBtn && !liveStopping) stopBtn.hidden = !(working && isLiveBot(c));
+  const hint = $("#queueHint");
+  if (working || qActive) {
+    pb.innerHTML = `${svg("layers", "ic-sm")} Queue`;
+    // A paused (failed-head) queue takes precedence: a new message won't send "when
+    // the turn finishes" — it's blocked behind the failed one until that's resolved.
+    pb.title = qStuck
+      ? "The queue is paused on a failed message — yours queues behind it and sends after you retry or remove that one"
+      : working
+        ? (isLiveBot(c)
+            ? "Claude is working — your message is queued and typed into the live window (with any model switch) once this turn finishes"
+            : "Claude is working — your message is queued and sent when the turn finishes")
+        : "Earlier messages are still sending — yours is queued after them";
+    // Escape hatch: send the draft as its own turn right now instead of queuing.
+    if (menu) menu.innerHTML = `<button class="menu-item warn" data-sendnow type="button" role="menuitem" title="Sends this draft as its own turn right now, skipping the queue — if Claude is mid-turn it can overlap that turn">${svg("alert", "ic-sm")} Send this draft now (skip the queue)</button>`;
+    if (more) more.hidden = false;
+  } else {
+    pb.textContent = sendLabel;
+    pb.title = "";
+    if (menu) menu.innerHTML = ""; // nothing worth queuing-for-later when the session is free
+    if (more) more.hidden = true;  // hide the caret so the button reads as one solid action
+  }
+  $(".send-split")?.classList.toggle("solo", !!(more && more.hidden));
+  // One-line explanation of why the button says "Queue", shown only when the box
+  // is the next thing you'd act on (working, nothing queued yet).
+  // Show the "why Queue?" hint whenever the box is the next thing to act on (working,
+  // nothing queued yet) — including live sessions, since that's the default state.
+  // Suppress it only when the auth banner is already up, to avoid a 3rd stacked note.
+  if (hint) {
+    const show = working && !qActive && meta.loggedIn;
+    hint.hidden = !show;
+    if (show) hint.innerHTML = `${svg("activity", "ic-sm")} Claude is working — messages queue and send when the turn finishes.`;
+  }
+}
+function updateTurnSummary() {
+  const sum = $("#tsSummary"); if (!sum) return;
+  const mv = $("#modelSelect")?.value || "";
+  const md = $("#modeSelect")?.value || "";
+  const ef = Number($("#effortRange")?.value || 0);
+  const parts = [mv ? (MODELS.find((m) => m.v === mv)?.label || mv) : "Default"];
+  if (md) parts.push(MODE_LABELS[md] || md);
+  if (ef) parts.push(EFFORT_LABELS[ef]);
+  if ($("#ultracodeToggle")?.checked) parts.push("Ultracode");
+  sum.textContent = parts.join(" · ");
+}
+// When Ultracode is on, include the keyword so Claude Code opts this turn into its
+// Workflow tool (the real, default-on trigger) — the same mechanism as typing it.
+function applyUltracode(text) {
+  return $("#ultracodeToggle")?.checked ? `${text}\n\nultracode` : text;
+}
+function closeComposerPopovers() {
+  $$(".settings-pop, .send-menu").forEach((p) => { p.hidden = true; });
+  $("#turnBtn")?.setAttribute("aria-expanded", "false");
+  $("#primaryMore")?.setAttribute("aria-expanded", "false");
+}
+function togglePopover(btn, pop) {
+  const show = pop.hidden; closeComposerPopovers();
+  pop.hidden = !show; btn.setAttribute("aria-expanded", String(show));
+}
+// Opening the send menu: grey out "Send this draft now" when the box is empty,
+// so it never looks like it'll flush the queue (it only sends typed text).
+function openSendMenu() {
+  const menu = $("#sendMenu");
+  const sn = menu?.querySelector("[data-sendnow]");
+  if (sn) {
+    const empty = !($("#composerText")?.value || "").trim();
+    sn.disabled = empty;
+    sn.classList.toggle("is-disabled", empty);
+    sn.title = empty ? "Type a message in the box to send it now" : "Sends this draft as its own turn right now, skipping the queue — if Claude is mid-turn it can overlap that turn";
+  }
+  togglePopover($("#primaryMore"), menu);
+}
+// "Edit" a queued message = pull it back into the box. Only populate the box if
+// the item was actually removed, so a failed/ in-flight dequeue can't leave the
+// same text in both the queue and the composer (a duplicate-send trap).
+async function editQueued(id) {
+  const it = (convo.queue || []).find((x) => x.id === id); if (!it) return;
+  const ta = $("#composerText");
+  if (ta && ta.value.trim()) { toast("Finish or clear your draft first — the box already holds unsent text", "err"); return; }
+  const ok = await dequeue(id);
+  if (ok && ta) { ta.value = it.text; ta.focus(); }
+}
 
 // ---- Prompt queue ----
-// Messages you line up while Claude is mid-turn; the server sends them one at a
-// time, each after the previous turn finishes, so Claude is never interrupted.
-async function queueNow(c) {
-  const ta = $("#composerText");
-  const text = (ta?.value || "").trim();
-  if (pendingAttach.length) { toast("Attachments can't be queued — send those directly", "err"); return; }
-  if (!text) { toast("Type a message to queue"); return; }
-  const model = $("#modelSelect")?.value || "";
-  const effort = EFFORT_VALUES[Number($("#effortRange")?.value || 0)] || "";
-  const mode = $("#modeSelect")?.value || "";
-  if (ta) ta.value = "";
+// Messages you line up while Claude is mid-turn; the server holds each one until
+// the live turn finishes, then sends them in order — so Claude is never interrupted.
+async function postQueue(c, text, model, effort, mode) {
   try {
     const r = await fetch("/api/sessions/" + encodeURIComponent(c.sessionId) + "/queue", {
       method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, model, effort, mode }),
     });
     const data = await r.json().catch(() => ({ ok: false }));
-    if (data.ok) { convo.queue = data.queue || []; renderQueue(); toast("Queued — sends after the current turn", "ok"); }
-    else { if (ta) ta.value = text; toast(data.message || "Couldn't queue", "err"); }
-  } catch (e) { if (ta) ta.value = text; toast(e.message || "Couldn't queue", "err"); }
+    if (data.ok) { convo.queue = data.queue || []; renderQueue(); syncPrimary(convo.data); }
+    return data;
+  } catch (e) { return { ok: false, message: e.message || "Couldn't queue" }; }
+}
+async function queueNow(c) {
+  const ta = $("#composerText");
+  const text = (ta?.value || "").trim();
+  if (pendingAttach.length) { toast('Attachments can’t be queued. Remove them to queue, or use “Send this draft now” to include them.', "err"); return; }
+  if (!text) { toast("Type a message to queue"); return; }
+  const model = $("#modelSelect")?.value || "";
+  const effort = EFFORT_VALUES[Number($("#effortRange")?.value || 0)] || "";
+  const mode = $("#modeSelect")?.value || "";
+  if (ta) ta.value = "";
+  const data = await postQueue(c, applyUltracode(text), model, effort, mode);
+  if (data.ok) toast(c.status === "working" ? "Queued — sends when the turn finishes" : "Queued — sending now", "ok");
+  else { if (ta) ta.value = text; toast(data.message || "Couldn't queue", "err"); }
+}
+// A per-item chip when this message was queued with non-default settings, so a
+// message set to a different model/mode/effort doesn't look identical to the rest.
+function queueItemCfg(it) {
+  const parts = [];
+  if (it.model) parts.push(modelLabel(it.model) || it.model);
+  if (it.mode) parts.push(MODE_LABELS[it.mode] || it.mode);
+  if (it.effort) { const i = EFFORT_VALUES.indexOf(it.effort); if (i > 0) parts.push(EFFORT_LABELS[i]); }
+  return parts.length ? `<span class="qcfg">${parts.map(esc).join(" · ")}</span>` : "";
+}
+// Expand/collapse a clamped queued message, remembering the choice in convo so a
+// poll re-render doesn't re-collapse it (and keeping aria-expanded in sync).
+function toggleQueueExpand(el) {
+  const id = el.dataset.qid;
+  if (!convo.expandedQueue) convo.expandedQueue = new Set();
+  const nowExpanded = !el.classList.contains("expanded");
+  el.classList.toggle("expanded", nowExpanded);
+  el.classList.remove("is-clamped");
+  el.setAttribute("aria-expanded", String(nowExpanded));
+  if (id) { nowExpanded ? convo.expandedQueue.add(id) : convo.expandedQueue.delete(id); }
 }
 function renderQueue() {
   const panel = $("#queuePanel"); if (!panel) return;
   const q = convo.queue || [];
   panel.hidden = q.length === 0;
   if (!q.length) { panel.innerHTML = ""; return; }
-  panel.innerHTML = `<div class="queue-head">${svg("layers", "ic-sm")} Queue · ${q.length} waiting</div>` +
-    q.map((it, i) => `<div class="queue-item q-${esc(it.status || "queued")}">
-      <span class="qn">${it.status === "sending" ? `<span class="spinner"></span>` : i + 1}</span>
-      <span class="qtext">${esc(it.text)}</span>
-      ${it.status === "error" ? `<span class="qerr" title="${esc(it.error || "Send failed")}">failed</span>` : ""}
-      ${it.status === "sending" ? `<span class="qmark">sending…</span>` : `<button class="qx" data-dequeue="${esc(it.id)}" aria-label="Remove from queue">${svg("x", "ic-sm")}</button>`}
-    </div>`).join("");
+  const isSending = q.some((it) => it.status === "sending");
+  const waiting = q.filter((it) => it.status === "queued").length;
+  const failed = q.filter((it) => it.status === "error").length;
+  // One consistent frame: a failure pauses the whole queue and says so; otherwise
+  // report what's happening now (sending) or that everything is waiting for the turn.
+  const working = convo.data?.status === "working";
+  let head;
+  if (failed) head = `<span class="qh-fail">${svg("alert", "ic-sm")} Queue paused — ${failed} failed, ${waiting} waiting</span>`;
+  else if (isSending) head = `<span class="spinner"></span> Sending now${waiting ? ` · ${waiting} waiting` : ""}`;
+  // "when the turn finishes" is only true while Claude is actually working; idle +
+  // queued means the server is draining them right now, so say that instead.
+  else head = `${svg("layers", "ic-sm")} ${q.length} queued · ${working ? "sends when the turn finishes" : "sending in order…"}`;
+  // For a live (macOS) session, queued items are typed into the live window once the
+  // current turn finishes — including any model switch — so they land on the desktop
+  // app, not as a separate headless CLI turn. State that in the panel.
+  const liveNote = isLiveBot(convo.data) ? `<div class="queue-subnote">Queued messages are typed into the live window when the turn finishes — model switches apply on the desktop app.</div>` : "";
+  panel.innerHTML = `<div class="queue-head" role="status" aria-live="polite">${head}</div>${liveNote}` +
+    q.map((it, i) => {
+      const st = it.status || "queued";
+      const num = st === "sending" ? `<span class="spinner"></span>`
+        : st === "error" ? svg("alert", "ic-sm") : `${i + 1}`;
+      let ctl;
+      if (st === "sending") ctl = `<span class="qmark">sending…</span>`;
+      else {
+        const retry = st === "error" ? `<button class="qx qretry" data-requeue="${esc(it.id)}" aria-label="Retry this message" title="Retry">${svg("refresh", "ic-sm")}</button>` : "";
+        const edit = `<button class="qx" data-edit="${esc(it.id)}" aria-label="Edit — pull back into the box" title="Edit">${svg("pencil", "ic-sm")}</button>`;
+        const remove = `<button class="qx qdestroy" data-dequeue="${esc(it.id)}" aria-label="Remove and discard" title="Remove and discard">${svg("x", "ic-sm")}</button>`;
+        ctl = retry + edit + remove;
+      }
+      const reason = st === "error" && it.error
+        ? `<div class="qreason">${esc(it.error)} <span class="qreason-hint">— fix it and retry, or remove to resume the rest.</span></div>`
+        : "";
+      const expanded = convo.expandedQueue?.has(it.id);
+      return `<div class="queue-item q-${st}">
+        <span class="qn">${num}</span>
+        <div class="qbody">
+          <div class="qtext clamp${expanded ? " expanded" : ""}" data-qid="${esc(it.id)}" tabindex="0" role="button" aria-expanded="${!!expanded}" title="Expand / collapse message">${esc(it.text)}</div>
+          ${queueItemCfg(it)}
+          ${reason}
+        </div>
+        <span class="qctl">${ctl}</span>
+      </div>`;
+    }).join("");
+  // Reveal the expand affordance only on rows whose text is actually clamped.
+  requestAnimationFrame(() => {
+    $$(".queue-item .qtext.clamp", panel).forEach((el) => {
+      if (!el.classList.contains("expanded") && el.scrollHeight - el.clientHeight > 2) el.classList.add("is-clamped");
+    });
+  });
 }
 async function dequeue(itemId) {
-  if (!convo.id) return;
+  if (!convo.id) return false;
   try {
     const r = await fetch("/api/sessions/" + encodeURIComponent(convo.id) + "/dequeue", {
       method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
       body: JSON.stringify({ itemId }),
     });
     const data = await r.json().catch(() => ({ ok: false }));
-    if (data.ok) { convo.queue = data.queue || []; renderQueue(); }
-    else toast(data.message || "Couldn't remove", "err");
-  } catch (e) { toast(e.message || "Couldn't remove", "err"); }
+    if (data.ok) { convo.queue = data.queue || []; renderQueue(); syncPrimary(convo.data); return true; }
+    toast(data.message || "Couldn't remove", "err"); return false;
+  } catch (e) { toast(e.message || "Couldn't remove", "err"); return false; }
+}
+// Remove from the × control: discards the message, but offers a one-tap Undo so a
+// mis-click never loses typed work (Edit preserves text; × is the destructive one).
+// Removals within the Undo window accumulate, so rapid removes all come back together
+// instead of each toast clobbering the previous one's Undo.
+let undoBuffer = [], undoTimer = null;
+async function removeQueued(id) {
+  const it = (convo.queue || []).find((x) => x.id === id);
+  const ok = await dequeue(id);
+  if (!ok || !it) return;
+  undoBuffer.push(it);
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { undoBuffer = []; }, 7000);
+  const n = undoBuffer.length;
+  toastAction(n === 1 ? "Removed from queue" : `${n} removed from queue`, "Undo", () => {
+    clearTimeout(undoTimer);
+    const items = undoBuffer; undoBuffer = [];
+    items.forEach((x) => postQueue(convo.data, x.text, x.model || "", x.effort || "", x.mode || ""));
+  });
+}
+async function requeueItem(id) {
+  if (!convo.id) return;
+  try {
+    const r = await fetch("/api/sessions/" + encodeURIComponent(convo.id) + "/requeue", {
+      method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: id }),
+    });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { convo.queue = data.queue || []; renderQueue(); syncPrimary(convo.data); toast("Retrying…", "ok"); }
+    else toast(data.message || "Couldn't retry", "err");
+  } catch (e) { toast(e.message || "Couldn't retry", "err"); }
 }
 
 // ---- Attachments ----
@@ -619,8 +1042,30 @@ function toggleMic() {
   catch { stop(); }
 }
 function authNoteHTML() {
-  return `<div class="auth-note"><strong>Sending needs a one-time login.</strong> The app launches the <code style="background:none;border:none;padding:0">claude</code> command, which isn't signed in (the desktop app's login is separate). In a terminal, run this once:
-    <div class="cmdrow"><code>${esc(meta.loginCmd || "claude auth login")}</code><button class="copybtn" data-copy="${esc(meta.loginCmd || "claude auth login")}" aria-label="Copy command">${svg("copy", "ic-sm")}</button></div></div>`;
+  return `<div class="auth-note"><strong>Sending needs a one-time sign-in.</strong> The <code style="background:none;border:none;padding:0">claude</code> CLI isn't signed in (separate from the desktop app).
+    <div class="auth-actions"><button type="button" class="btn primary" data-start-login>${svg("user", "ic-sm")} Sign in with your browser</button><button type="button" class="btn ghost" data-recheck-auth>${svg("refresh", "ic-sm")} Check again</button><button type="button" class="applink" data-open-account>or add an API key</button></div></div>`;
+}
+// Re-run the login check without restarting the server, so after the user runs
+// `claude auth login` in a terminal they can clear this banner from the app.
+async function recheckAuth(btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Checking…`; }
+  try {
+    const m = await api("/api/meta?recheck=1");
+    meta = m;
+    const inAcct = acctModalOpen();
+    if (m.loggedIn) {
+      toast("Signed in — you can send now", "ok");
+      if (inAcct) openAccountModal();                                 // refresh the account panel in place
+      else if (convo.id && convo.data) renderComposer(convo.data);    // drops the banner, refocuses the box
+    } else {
+      toast("Still not signed in — run the command in a terminal, then check again", "err");
+      if (inAcct) openAccountModal();
+      else if (btn) { btn.disabled = false; btn.innerHTML = `${svg("refresh", "ic-sm")} I’ve logged in — check again`; }
+    }
+  } catch {
+    toast("Couldn't check the login state", "err");
+    if (btn) { btn.disabled = false; btn.innerHTML = `${svg("refresh", "ic-sm")} I’ve logged in — check again`; }
+  }
 }
 function closeDrawer() {
   $("#drawer").hidden = true; $("#drawerBackdrop").hidden = true; document.body.classList.remove("locked");
@@ -644,7 +1089,7 @@ function sendNow(c) {
   const model = $("#modelSelect")?.value || "";
   const effort = EFFORT_VALUES[Number($("#effortRange")?.value || 0)] || "";
   const mode = $("#modeSelect")?.value || "";
-  doSend(c, text, model, effort, att, mode);
+  doSend(c, applyUltracode(text), model, effort, att, mode);
 }
 function setWorking(on) {
   const box = $("#messages"); if (!box) return;
@@ -705,7 +1150,30 @@ async function waitForTypedMessage(sessionId, text, before, timeoutMs) {
   }
   return false;
 }
+let liveStopping = false;
+// Interrupt the running turn in the live window (presses Escape via the app).
+async function stopLive(c) {
+  if (liveStopping) return;
+  liveStopping = true;
+  const btn = $("#stopBtn");
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Stopping…`; }
+  try {
+    const r = await fetch("/api/sessions/" + encodeURIComponent(c.sessionId) + "/livestop", {
+      method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: "{}",
+    });
+    const data = await r.json().catch(() => ({ ok: false, message: "Unexpected response from server." }));
+    if (data.ok) toast("Interrupt sent to the live window", "ok");
+    else if (data.reason === "accessibility") showAccessibilityHelp(data);
+    else toast(data.message || "Couldn't interrupt the live window", "err");
+  } catch (e) {
+    toast(e.message || "Couldn't reach the live window", "err");
+  } finally {
+    liveStopping = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = `${svg("stop", "ic-sm")} Stop`; }
+  }
+}
 let liveSending = false;
+const liveModel = new Map(); // sessionId -> last model we switched the live window to
 async function sendToLiveWindow(c) {
   if (liveSending) return; // guard against rapid Enter firing overlapping pastes
   const ta = $("#composerText");
@@ -713,16 +1181,20 @@ async function sendToLiveWindow(c) {
   if (pendingAttach.length) { toast("Files can't be typed into the live window — use ‘send a separate turn here’", "err"); return; }
   if (!text) return;
   liveSending = true;
+  // Only switch when the picked model differs from what the window is already on.
+  const picked = $("#modelSelect")?.value || "";
+  const switchTo = picked && picked !== (liveModel.get(c.sessionId) || c.model) ? picked : undefined;
   const btn = $("#sendBtn");
   if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Typing…`; }
   try {
     const before = new Set(convo.uuids); // messages already known, to spot the new one
     const r = await fetch("/api/sessions/" + encodeURIComponent(c.sessionId) + "/livetype", {
       method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: text, model: switchTo }),
     });
     const data = await r.json().catch(() => ({ ok: false, message: "Unexpected response from server." }));
     if (data.ok) {
+      if (switchTo) liveModel.set(c.sessionId, switchTo);
       // Don't clear optimistically — confirm the keystrokes actually reached the live
       // window by waiting for our message to appear in the transcript.
       if (btn) btn.innerHTML = `<span class="spinner"></span> Confirming…`;
@@ -763,6 +1235,178 @@ function showAuthHelp(data) {
 }
 
 // ---------------------------------------------------------------------------
+// Account panel: who the CLI is signed in as, log out, and set/replace an API key.
+// ---------------------------------------------------------------------------
+async function openAccountModal() {
+  let info;
+  try { info = await api("/api/account"); }
+  catch { info = { loggedIn: false, method: "none", account: "", keySet: false, envKey: false }; }
+  renderAccountModal(info);
+}
+let logoutArmed = false;
+function renderAccountModal(info) {
+  const method = info.method || "none";
+  const icon = method === "apikey" ? "key" : method === "oauth" ? "user" : "alert";
+  let line, sub, statusCls;
+  if (method === "apikey") {
+    line = "Using an API key";
+    sub = `Key ${esc(info.account || "")}${info.envKey ? " · from the environment" : ""}`;
+    statusCls = "ok";
+  } else if (method === "oauth") {
+    line = info.account ? `Signed in as ${esc(info.account)}` : "Signed in";
+    sub = "Logged in through the claude CLI";
+    statusCls = "ok";
+  } else {
+    line = "Not signed in";
+    sub = "Replies can't run until you log in or add an API key";
+    statusCls = "warn";
+  }
+  const loginCmd = meta.loginCmd || "claude auth login";
+  const loginBlock = method === "none"
+    ? `<div class="acct-actions"><button type="button" class="btn primary" id="acctLogin">${svg("user", "ic-sm")} Sign in with your browser</button><button type="button" class="btn ghost" data-recheck-auth>${svg("refresh", "ic-sm")} Check again</button></div>
+       <p class="acct-note">Opens the <code>claude</code> sign-in in your browser — finish there and this updates on its own. Prefer the terminal? Run <code>${esc(loginCmd)}</code>.</p>`
+    : "";
+  const logoutBlock = method === "oauth"
+    ? `<div class="acct-actions"><button type="button" class="btn ghost" id="acctLogout">${svg("logout", "ic-sm")} Log out</button></div>`
+    : "";
+  // Only a UI/config-saved key is removable from here; an env-provided key isn't ours to delete.
+  const keyCurrent = info.keySet
+    ? `<div class="acct-keycur"><span>${svg("key", "ic-sm")} Saved key ${esc(info.account || "")}</span><button type="button" class="btn ghost" id="acctClearKey">Remove</button></div>`
+    : "";
+  const bodyHTML = `
+    <div class="acct">
+      <div class="acct-status acct-${statusCls}">
+        <span class="acct-ico">${svg(icon)}</span>
+        <div class="acct-id"><div class="acct-line">${line}</div><div class="acct-sub">${sub}</div></div>
+      </div>
+      ${loginBlock}${logoutBlock}
+      <div class="acct-sep"></div>
+      <div class="acct-keyblock">
+        <div class="acct-h">API key</div>
+        ${keyCurrent}
+        <label class="field"><span>${info.keySet ? "Replace the key" : "Add a key (an alternative to logging in)"}</span>
+          <div class="keyrow"><input type="password" id="acctKeyInput" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"><button type="button" class="btn primary" id="acctSaveKey">Save</button></div>
+        </label>
+        <p class="acct-note">Saved locally in <code>~/.codeshelf/config.json</code> (owner-only, 0600) and used only for the local <code>claude</code> process. Replies still count against your normal plan usage.</p>
+      </div>
+    </div>`;
+  showModal({ title: "Account", bodyHTML, confirmLabel: "Done", onConfirm: closeModal, hideCancel: true });
+  logoutArmed = false;
+  $("#acctSaveKey")?.addEventListener("click", saveApiKeyFromModal);
+  $("#acctKeyInput")?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveApiKeyFromModal(); } });
+  $("#acctClearKey")?.addEventListener("click", clearApiKeyFromModal);
+  $("#acctLogout")?.addEventListener("click", logoutFromModal);
+  $("#acctLogin")?.addEventListener("click", loginFromModal);
+}
+// Kick off the CLI's browser sign-in, then poll until it lands (no terminal needed).
+async function loginFromModal() {
+  const btn = $("#acctLogin"); if (!btn) return;
+  const reset = () => { btn.disabled = false; btn.innerHTML = `${svg("user", "ic-sm")} Sign in with your browser`; };
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Opening browser…`;
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: "{}" });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { btn.innerHTML = `<span class="spinner"></span> Waiting for sign-in…`; pollLogin(btn, 0); }
+    else { reset(); toast(data.message || "Couldn't start sign-in", "err"); }
+  } catch (e) { reset(); toast(e.message || "Couldn't start sign-in", "err"); }
+}
+// Poll /api/account for ~2 min while the browser flow completes; stop if the modal closes.
+async function pollLogin(btn, n) {
+  if (n > 60 || !acctModalOpen() || $("#acctLogin") !== btn) { if ($("#acctLogin") === btn) { btn.disabled = false; btn.innerHTML = `${svg("user", "ic-sm")} Sign in with your browser`; } return; }
+  await new Promise((r) => setTimeout(r, 2000));
+  let info; try { info = await api("/api/account"); } catch { return pollLogin(btn, n + 1); }
+  if (info.loggedIn) { await loadMeta(); toast("Signed in", "ok"); if (acctModalOpen()) renderAccountModal(info); return; }
+  pollLogin(btn, n + 1);
+}
+const acctModalOpen = () => !$("#modalBackdrop").hidden && !!$(".acct");
+async function saveApiKeyFromModal() {
+  const key = ($("#acctKeyInput")?.value || "").trim();
+  if (!key) { toast("Paste a key first"); return; }
+  const btn = $("#acctSaveKey"); if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const r = await fetch("/api/apikey", { method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) {
+      toast(data.looksAnthropic === false ? "Key saved — note it isn't an sk-ant- key" : "API key saved", "ok");
+      await loadMeta(); openAccountModal();
+    } else { if (btn) { btn.disabled = false; btn.textContent = "Save"; } toast(data.message || "Couldn't save the key", "err"); }
+  } catch (e) { if (btn) { btn.disabled = false; btn.textContent = "Save"; } toast(e.message || "Couldn't save the key", "err"); }
+}
+async function clearApiKeyFromModal() {
+  try {
+    const r = await fetch("/api/apikey/clear", { method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: "{}" });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { toast("API key removed", "ok"); await loadMeta(); openAccountModal(); }
+    else toast("Couldn't remove the key", "err");
+  } catch (e) { toast(e.message || "Couldn't remove the key", "err"); }
+}
+// Two-step confirm (no native dialog): first click arms, second logs out.
+function logoutFromModal() {
+  const btn = $("#acctLogout"); if (!btn) return;
+  if (!logoutArmed) {
+    logoutArmed = true; btn.classList.add("warn"); btn.innerHTML = `${svg("logout", "ic-sm")} Click again to log out`;
+    setTimeout(() => { if (logoutArmed && $("#acctLogout") === btn) { logoutArmed = false; btn.classList.remove("warn"); btn.innerHTML = `${svg("logout", "ic-sm")} Log out`; } }, 4000);
+    return;
+  }
+  logoutArmed = false;
+  doLogout(btn);
+}
+async function doLogout(btn) {
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Logging out…`;
+  try {
+    const r = await fetch("/api/logout", { method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: "{}" });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) { toast("Logged out", "ok"); await loadMeta(); openAccountModal(); }
+    else { btn.disabled = false; btn.classList.remove("warn"); btn.innerHTML = `${svg("logout", "ic-sm")} Log out`; toast(data.message || "Couldn't log out", "err"); }
+  } catch (e) { btn.disabled = false; btn.innerHTML = `${svg("logout", "ic-sm")} Log out`; toast(e.message || "Couldn't log out", "err"); }
+}
+
+// ---------------------------------------------------------------------------
+// Usage budgets (advisory: track + warn, no enforcement of the real plan limit)
+// ---------------------------------------------------------------------------
+function openBudgetsModal() {
+  const shares = projectShares();
+  // Every project currently seen, plus any that already has a budget set.
+  const names = new Set(state.sessions.map((s) => s.project));
+  Object.keys(state.budgets.projects || {}).forEach((p) => names.add(p));
+  const projects = [...names].sort((a, b) => (shares[b] || 0) - (shares[a] || 0));
+  const bud = state.budgets;
+  const body = `
+    <div class="bud">
+      <p class="bud-intro">Advisory only — CodeShelf warns you but can't change your real plan limit, and only counts usage it tracks. Leave a field blank for no budget.</p>
+      <div class="bud-row"><label for="budFiveHour">5-hour cap <span class="bud-sub">% of plan limit</span></label><div class="bud-inwrap"><input type="number" id="budFiveHour" min="0" max="100" value="${bud.fiveHourPct || ""}" placeholder="off"><span class="bud-pctmark">%</span></div></div>
+      <div class="bud-row"><label for="budWeekly">Weekly cap <span class="bud-sub">% of plan limit</span></label><div class="bud-inwrap"><input type="number" id="budWeekly" min="0" max="100" value="${bud.weeklyPct || ""}" placeholder="off"><span class="bud-pctmark">%</span></div></div>
+      <div class="bud-sep"></div>
+      <div class="bud-h">Per-project weekly budget <span class="bud-sub">share of CodeShelf-tracked weekly tokens</span></div>
+      ${projects.length ? `<div class="bud-projects">${projects.map((p) => {
+        const cur = Math.round(shares[p] || 0);
+        const cap = bud.projects?.[p] || "";
+        return `<div class="bud-prow"><span class="bud-pname" title="${esc(p)}">${esc(p)}</span><span class="bud-pcur">${cur}% now</span><div class="bud-inwrap"><input type="number" class="bud-pin" data-project="${esc(p)}" min="0" max="100" value="${cap}" placeholder="off" aria-label="Weekly budget for ${esc(p)} (now ${cur}% of tracked usage), percent"><span class="bud-pctmark">%</span></div></div>`;
+      }).join("")}</div>` : `<p class="bud-empty">No projects tracked yet.</p>`}
+    </div>`;
+  showModal({ title: "Usage budgets", bodyHTML: body, confirmLabel: "Save budgets", onConfirm: saveBudgetsFromModal });
+}
+async function saveBudgetsFromModal() {
+  const payload = {
+    fiveHourPct: Number($("#budFiveHour")?.value) || 0,
+    weeklyPct: Number($("#budWeekly")?.value) || 0,
+    projects: {},
+  };
+  $$(".bud-pin").forEach((inp) => { const v = Number(inp.value) || 0; if (v > 0) payload.projects[inp.dataset.project] = v; });
+  try {
+    const r = await fetch("/api/budgets", { method: "POST", headers: { "X-CE-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (data.ok) {
+      state.budgets = data.budgets;
+      if (state.lastUsage) renderUsage(state.lastUsage);
+      renderChips();
+      closeModal();
+      toast("Budgets saved", "ok");
+    } else toast(data.message || "Couldn't save budgets", "err");
+  } catch (e) { toast(e.message || "Couldn't save budgets", "err"); }
+}
+
+// ---------------------------------------------------------------------------
 // New session / move context
 // ---------------------------------------------------------------------------
 function openNewModal(seedFrom, seedTitle) {
@@ -786,7 +1430,7 @@ function openNewModal(seedFrom, seedTitle) {
       <label class="field"><span>First message${seedFrom ? " (added after the context)" : ""}</span>
         <textarea id="nsMsg" rows="3" placeholder="What should Claude start on?"></textarea></label>
       <div class="composer-controls" style="margin-top:2px">
-        <select id="nsModel" class="model-select">${MODELS.map((m) => `<option value="${m.v}" ${m.v === model ? "selected" : ""}>${m.label}</option>`).join("")}</select>
+        <select id="nsModel" class="model-select">${modelOptionsHTML(model)}</select>
         <label class="effort">Effort <input type="range" id="nsEffort" min="0" max="5" value="${eff}" aria-label="Reasoning effort"><span class="elabel" id="nsEffortLabel">${EFFORT_LABELS[eff]}</span></label>
       </div>`,
     confirmLabel: seedFrom ? "Create & hand off" : "Start session",
@@ -905,11 +1549,14 @@ function maybeNotify() {
 // Modal + toast + focus trap
 // ---------------------------------------------------------------------------
 let modalFocus = null;
-function showModal({ title, bodyHTML, confirmLabel, onConfirm }) {
+// hideCancel: for read-only panels where the confirm just dismisses, so the footer
+// shows one button instead of two that do the same thing.
+function showModal({ title, bodyHTML, confirmLabel, onConfirm, hideCancel }) {
   modalFocus = document.activeElement;
-  $("#modal").innerHTML = `<h3 id="modalTitle">${esc(title)}</h3><div>${bodyHTML}</div><div class="modal-actions"><button class="btn" id="modalCancel">Cancel</button><button class="btn primary" id="modalConfirm">${esc(confirmLabel)}</button></div>`;
+  const cancelBtn = hideCancel ? "" : `<button class="btn" id="modalCancel">Cancel</button>`;
+  $("#modal").innerHTML = `<h3 id="modalTitle">${esc(title)}</h3><div>${bodyHTML}</div><div class="modal-actions">${cancelBtn}<button class="btn primary" id="modalConfirm">${esc(confirmLabel)}</button></div>`;
   $("#modalBackdrop").hidden = false;
-  $("#modalCancel").addEventListener("click", closeModal);
+  $("#modalCancel")?.addEventListener("click", closeModal);
   $("#modalConfirm").addEventListener("click", onConfirm);
   $("#modalConfirm").focus();
 }
@@ -918,6 +1565,15 @@ let toastTimer = null;
 function toast(msg, kind = "") {
   const t = $("#toast"); t.textContent = msg; t.className = "toast" + (kind ? " " + kind : ""); t.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), kind === "err" ? 6000 : 3000);
+}
+// A toast with a single action button (e.g. Undo). The label is escaped; the
+// callback fires on click and dismisses the toast.
+function toastAction(msg, label, fn, kind = "") {
+  const t = $("#toast");
+  t.innerHTML = `<span class="toast-msg">${esc(msg)}</span><button type="button" class="toast-act">${esc(label)}</button>`;
+  t.className = "toast has-act" + (kind ? " " + kind : ""); t.hidden = false;
+  t.querySelector(".toast-act").onclick = () => { t.hidden = true; clearTimeout(toastTimer); fn(); };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 7000);
 }
 function trapTab(e) {
   if (e.key !== "Tab") return;
@@ -1033,12 +1689,28 @@ function timeAgo(ts) {
 // ---------------------------------------------------------------------------
 document.addEventListener("click", (e) => {
   if (e.target.closest("a[href]")) return; // let real links (Open in Claude, etc.) work
+  // Close composer popovers on any click outside their triggers/panels.
+  if (!e.target.closest("#turnBtn,#primaryMore,.settings-pop,.send-menu")) closeComposerPopovers();
+  const sendnow = e.target.closest("[data-sendnow]");
+  if (sendnow) { if (sendnow.disabled) return; closeComposerPopovers(); forceSend(); return; }
+  const recheck = e.target.closest("[data-recheck-auth]");
+  if (recheck) { e.stopPropagation(); recheckAuth(recheck); return; }
+  const startLogin = e.target.closest("[data-start-login]");
+  if (startLogin) { e.stopPropagation(); openAccountModal(); return; } // the modal drives the browser sign-in + polling
+  const openAcct = e.target.closest("[data-open-account]");
+  if (openAcct) { e.stopPropagation(); openAccountModal(); return; }
   const copy = e.target.closest("[data-copy]");
   if (copy) { e.stopPropagation(); navigator.clipboard?.writeText(copy.dataset.copy).then(() => toast("Copied", "ok"), () => toast("Copy failed", "err")); return; }
   const rm = e.target.closest("[data-attach-remove]");
   if (rm) { pendingAttach.splice(Number(rm.dataset.attachRemove), 1); renderAttachRow(); return; }
+  const requeue = e.target.closest("[data-requeue]");
+  if (requeue) { e.stopPropagation(); requeueItem(requeue.dataset.requeue); return; }
+  const edit = e.target.closest("[data-edit]");
+  if (edit) { e.stopPropagation(); editQueued(edit.dataset.edit); return; }
   const dq = e.target.closest("[data-dequeue]");
-  if (dq) { e.stopPropagation(); dequeue(dq.dataset.dequeue); return; }
+  if (dq) { e.stopPropagation(); removeQueued(dq.dataset.dequeue); return; }
+  const qt = e.target.closest(".qtext.clamp");
+  if (qt) { toggleQueueExpand(qt); return; }
   const pin = e.target.closest("[data-pin]");
   if (pin) { e.stopPropagation(); togglePin(pin.dataset.pin); return; }
   const view = e.target.closest("[data-view]");
@@ -1047,6 +1719,8 @@ document.addEventListener("click", (e) => {
   if (card) { openSession(card.dataset.id); return; }
   const tile = e.target.closest("[data-status]");
   if (tile) { state.statusFilter = state.statusFilter === tile.dataset.status ? "all" : tile.dataset.status; sigSignal = sigChips = sigContent = ""; renderSignal(); renderChips(); renderContent(); return; }
+  const bpt = e.target.closest("#byProjToggle");
+  if (bpt) { byProjOpen = !byProjOpen; lsSet("ce-byproj", byProjOpen); sigByProj = ""; renderUsageByProject(); return; }
   const chip = e.target.closest("[data-project]");
   if (chip) { state.projectFilter = chip.dataset.project || null; sigChips = sigContent = ""; renderChips(); renderContent(); return; }
   if (e.target === $("#modalBackdrop")) closeModal();
@@ -1054,16 +1728,24 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("card")) { e.preventDefault(); openSession(e.target.dataset.id); return; }
-  if (e.key === "Escape") { if (!$("#modalBackdrop").hidden) return closeModal(); if (!$("#drawer").hidden) return closeDrawer(); }
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("qtext") && e.target.classList?.contains("clamp")) { e.preventDefault(); toggleQueueExpand(e.target); return; }
+  if (e.key === "Escape") {
+    if ($$(".settings-pop, .send-menu").some((p) => !p.hidden)) return closeComposerPopovers();
+    if (!$("#modalBackdrop").hidden) return closeModal();
+    if (!$("#drawer").hidden) return closeDrawer();
+  }
   trapTab(e);
 });
 $("#searchInput").addEventListener("input", (e) => onSearch(e.target.value));
 $("#projectChips").addEventListener("scroll", updateChipFades, { passive: true });
 window.addEventListener("resize", updateChipFades);
 $("#drawerClose").addEventListener("click", closeDrawer);
-$("#refreshBtn").addEventListener("click", () => { loadSessions(); loadUsage(); loadMeta(); });
+$("#handoffBtn")?.addEventListener("click", () => { if (convo.data) openNewModal(convo.data.sessionId, convo.data.title); });
+$("#refreshBtn").addEventListener("click", () => { loadSessions(); loadUsage(); loadMeta(); loadBudgets(); });
 $("#themeBtn").addEventListener("click", cycleTheme);
 $("#notifyBtn").addEventListener("click", toggleNotify);
+$("#accountBtn").addEventListener("click", openAccountModal);
+$("#budgetBtn").addEventListener("click", openBudgetsModal);
 $("#newBtn")?.addEventListener("click", () => openNewModal());
 
 // ---------------------------------------------------------------------------
@@ -1075,6 +1757,7 @@ syncNotifyBtn();
 loadSessions();
 loadUsage();
 loadMeta();
+loadBudgets();
 setInterval(() => {
   if (!$("#autorefresh").checked || document.hidden) return;
   loadSessions(); loadUsage(); refreshOpenSession();
