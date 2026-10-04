@@ -80,6 +80,31 @@ const MAX_UPLOAD = 10 * 1024 * 1024;
 function sessionDeepLink(host) {
   return `claude://code/continue?session=${encodeURIComponent(host)}`;
 }
+// Who the Claude app/CLI is signed in as right now. Read fresh (lightly cached) from
+// ~/.claude.json so switching accounts is reflected without restarting the server —
+// this drives the "only show the logged-in account's chats" filter.
+let _acctCache = null, _acctAt = 0;
+function currentAccount() {
+  const now = Date.now();
+  if (_acctCache && now - _acctAt < 4000) return _acctCache;
+  let acct = { email: "", org: "", accountUuid: "", name: "" };
+  for (const p of [path.join(HOME, ".claude.json"), path.join(CLAUDE_DIR, ".claude.json")]) {
+    try {
+      const o = JSON.parse(fs.readFileSync(p, "utf8")).oauthAccount;
+      if (o) { acct = { email: (o.emailAddress || "").toLowerCase(), org: o.organizationUuid || "", accountUuid: o.accountUuid || "", name: o.displayName || "" }; break; }
+    } catch { /* missing/unreadable -> next */ }
+  }
+  _acctCache = acct; _acctAt = now;
+  return acct;
+}
+// Does a session belong to the current account? Email is authoritative, org is the
+// fallback; a session with no marker at all is "unknown" (null) — the UI's strict
+// filter hides those, an explicit match (true) shows them.
+function sessionMine(meta, acct) {
+  if (meta.ownerEmail) return meta.ownerEmail === acct.email;
+  if (meta.ownerOrg) return !!acct.org && meta.ownerOrg === acct.org;
+  return null;
+}
 const RC_URL = "https://claude.ai/code";
 // Models / effort levels the reply endpoint may pass (validated server-side).
 // Accept the latest-model aliases OR a specific `claude-<family>-<version>` id (e.g.
@@ -165,6 +190,8 @@ async function parseTranscriptMeta(file) {
     lastAssistantEndsWithQuestion: false,
     pendingTool: null,
     permissionMode: null,
+    ownerEmail: null, // latest account that ran this session (from transcript markers)
+    ownerOrg: null,
     tok5h: 0,
     tokWeek: 0,
   };
@@ -188,6 +215,17 @@ async function parseTranscriptMeta(file) {
       }
       if (t === "ai-title") {
         if (typeof o.aiTitle === "string") meta.aiTitle = o.aiTitle;
+        continue;
+      }
+      // Account ownership markers Claude Code writes into the transcript. Latest wins —
+      // a session can span accounts (log out / back in), so the final marker is current.
+      if (t === "attachment" && o.attachment) {
+        const at = o.attachment;
+        if (at.type === "credential_org" && typeof at.organizationUuid === "string") meta.ownerOrg = at.organizationUuid;
+        else if (at.type === "session_context") {
+          const m = /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/.exec(at.context?.userEmail || "");
+          if (m) meta.ownerEmail = m[1].toLowerCase();
+        }
         continue;
       }
       if (t !== "user" && t !== "assistant") continue;
@@ -363,6 +401,7 @@ let listCache = { at: 0, data: null };
 
 async function buildSessionList() {
   const [files, live] = await Promise.all([listTranscriptFiles(), readLiveRegistry()]);
+  const acct = currentAccount();
 
   // Evict cache entries for transcripts that no longer exist.
   const fileSet = new Set(files);
@@ -397,6 +436,7 @@ async function buildSessionList() {
         mtimeMs: meta.mtimeMs,
         pendingTool: meta.pendingTool,
         permissionMode: meta.permissionMode,
+        mine: sessionMine(meta, acct), // true = current account, false = another, null = unknown
         queued: (queues.get(meta.sessionId) || []).length,
         queueStuck: (queues.get(meta.sessionId) || []).some((it) => it.status === "error"),
         tok5h: meta.tok5h,
@@ -1569,17 +1609,14 @@ async function typeIntoLiveWindowInner(host, messages) {
   //    (invisible to the user), THEN flash to the front just long enough to paste,
   //    and restore focus to `prevApp`.
   await new Promise((r) => setTimeout(r, LIVE_FOCUS_MS));
-  console.log(`[live] type host=${host.slice(0, 18)}… prevApp=${JSON.stringify(prevApp)} parts=${messages.length} open=${op.code}`);
   const pasteArgs = () => ["-e", PASTE_SCRIPT, prevApp];
   let os = await runProc("/usr/bin/osascript", pasteArgs());
-  console.log(`[live]   paste#0 code=${os.code} out=${JSON.stringify(os.out.trim())}${os.err.trim() ? ` err=${JSON.stringify(os.err.trim().slice(0, 120))}` : ""}`);
   // Remaining messages (the real prompt after a `/model` switch): a short settle so the
   // command is taken, then paste the next one.
   for (let i = 1; i < messages.length && os.code === 0 && os.out.includes("OK"); i++) {
     await new Promise((r) => setTimeout(r, messages[i - 1].hold ?? 250));
     await runProc("/usr/bin/pbcopy", [], { input: messages[i].text });
     os = await runProc("/usr/bin/osascript", pasteArgs());
-    console.log(`[live]   paste#${i} code=${os.code} out=${JSON.stringify(os.out.trim())}`);
   }
   // Restore the clipboard now that the paste has happened (best-effort).
   if (savedClip) await runProc("/usr/bin/pbcopy", [], { input: savedClip });
@@ -1801,7 +1838,8 @@ const server = http.createServer(async (req, res) => {
           (a, s) => ((a.fiveHour += s.tok5h || 0), (a.week += s.tokWeek || 0), a),
           { fiveHour: 0, week: 0 }
         );
-        return sendJSON(res, 200, { sessions, counts, usageTotals, generatedAt: Date.now() });
+        const acct = currentAccount();
+        return sendJSON(res, 200, { sessions, counts, usageTotals, account: { email: acct.email, name: acct.name }, generatedAt: Date.now() });
       }
 
       if (p.startsWith("/api/sessions/") && p.endsWith("/send") && req.method === "POST") {
