@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" role="img" aria-label="CodeShelf dashboard mockup">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif" role="img" aria-label="CodeShelf dashboard mockup: Claude Code sessions grouped by status, scoped to the signed-in account, with plan-usage meters, exact model-version chips, a Stop control, and per-session plan-limit donuts">
   <defs>
     <filter id="sh" x="-5%" y="-5%" width="110%" height="115%">
       <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#2d2210" flood-opacity="0.18"/>
@@ -21,23 +21,37 @@
     <rect x="23" y="6" width="5.5" height="20" rx="1.5" fill="#2c5241"/>
     <text x="42" y="24" font-size="22" font-weight="700"><tspan fill="#2a2620">Code</tspan><tspan fill="#2c5241">Shelf</tspan></text>
   </g>
+
+  <!-- signed-in account chip -->
+  <rect x="540" y="81" width="200" height="30" rx="15" fill="#ece3d2" stroke="#e1d6c0"/>
+  <circle cx="560" cy="92" r="3.4" fill="none" stroke="#6f7f72" stroke-width="1.6"/>
+  <path d="M553 101 a7 7 0 0 1 14 0" fill="none" stroke="#6f7f72" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="574" y="100" font-size="12" fill="#5c5347">you@studio.dev</text>
+
+  <!-- "All projects" toggle (off: only the signed-in account's sessions) -->
+  <rect x="752" y="81" width="152" height="30" rx="15" fill="#fbf6ec" stroke="#e1d6c0"/>
+  <text x="768" y="100" font-size="12" fill="#5c5347">All projects</text>
+  <rect x="868" y="90" width="24" height="12" rx="6" fill="#d9d0bf"/>
+  <circle cx="875" cy="96" r="5" fill="#fbf6ec" stroke="#cdbfa6"/>
+
+  <!-- live + new session -->
   <rect x="916" y="81" width="86" height="30" rx="15" fill="#ece3d2" stroke="#e1d6c0"/>
   <circle cx="936" cy="96" r="4" fill="#3a6451"/><text x="948" y="100" font-size="12.5" font-weight="650" fill="#2c5241">Live</text>
   <rect x="1012" y="80" width="136" height="32" rx="16" fill="#2c5241"/>
   <text x="1080" y="100" text-anchor="middle" font-size="13" font-weight="650" fill="#fbf6ec">+ New session</text>
 
-  <!-- usage cards -->
+  <!-- usage cards (plan limits for the signed-in account) -->
   <g transform="translate(52,140)">
     <rect x="0" y="0" width="538" height="96" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <circle cx="24" cy="26" r="4" fill="#c89b3c"/><text x="36" y="30" font-size="13" fill="#5c5347">Last 5 hours</text>
-    <text x="22" y="66" font-size="30" font-weight="700" fill="#2a2620">44%</text><text x="92" y="64" font-size="12" fill="#7a7059">updated 5m ago</text>
+    <circle cx="24" cy="26" r="4" fill="#c89b3c"/><text x="36" y="30" font-size="13" fill="#5c5347">5-hour limit</text>
+    <text x="22" y="66" font-size="30" font-weight="700" fill="#2a2620">44%</text><text x="92" y="64" font-size="12" fill="#7a7059">resets in 3h 20m</text>
     <rect x="22" y="76" width="360" height="6" rx="3" fill="#ece3d2"/><rect x="22" y="76" width="158" height="6" rx="3" fill="#8a6410"/>
     <polyline points="430,60 445,44 460,52 475,30 490,40 505,24 520,34" fill="none" stroke="#8a6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <g transform="translate(610,140)">
     <rect x="0" y="0" width="538" height="96" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <circle cx="24" cy="26" r="4" fill="#3a6451"/><text x="36" y="30" font-size="13" fill="#5c5347">This week</text>
-    <text x="22" y="66" font-size="30" font-weight="700" fill="#2a2620">76%</text><text x="92" y="64" font-size="12" fill="#7a7059">updated 5m ago</text>
+    <circle cx="24" cy="26" r="4" fill="#3a6451"/><text x="36" y="30" font-size="13" fill="#5c5347">Weekly limit</text>
+    <text x="22" y="66" font-size="30" font-weight="700" fill="#2a2620">76%</text><text x="92" y="64" font-size="12" fill="#7a7059">resets in 3d 11h</text>
     <rect x="22" y="76" width="360" height="6" rx="3" fill="#ece3d2"/><rect x="22" y="76" width="274" height="6" rx="3" fill="#2c5241"/>
     <polyline points="430,56 445,52 460,46 475,48 490,38 505,34 520,26" fill="none" stroke="#2c5241" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
@@ -45,62 +59,72 @@
   <!-- signal tiles -->
   <g transform="translate(52,258)">
     <rect x="0" y="0" width="353" height="86" rx="14" fill="#f3ddd8" stroke="#d9aea6"/>
-    <text x="22" y="48" font-size="34" font-weight="700" fill="#97362f">6</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Need input</text>
+    <text x="22" y="48" font-size="34" font-weight="700" fill="#97362f">2</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Need input</text>
     <path d="M324 30 h-16 M324 30 l-8 -8 M324 30 l-8 8" fill="none" stroke="#97362f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <g transform="translate(423,258)">
     <rect x="0" y="0" width="353" height="86" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <text x="22" y="48" font-size="34" font-weight="700" fill="#2a2620">2</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Working</text>
+    <text x="22" y="48" font-size="34" font-weight="700" fill="#2a2620">1</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Working</text>
     <polyline points="304,30 310,30 314,20 320,40 324,30 330,30" fill="none" stroke="#8a6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <g transform="translate(794,258)">
     <rect x="0" y="0" width="353" height="86" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <text x="22" y="48" font-size="34" font-weight="700" fill="#2a2620">49</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Inactive</text>
+    <text x="22" y="48" font-size="34" font-weight="700" fill="#2a2620">4</text><text x="22" y="70" font-size="12.5" fill="#5c5347">Inactive</text>
     <path d="M306 30 l6 6 l12 -13" fill="none" stroke="#6f665a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
   <!-- group label -->
-  <text x="52" y="384" font-size="11" font-weight="650" letter-spacing="1.2" fill="#7a7059">NEED INPUT · 3</text>
+  <text x="52" y="384" font-size="11" font-weight="650" letter-spacing="1.2" fill="#7a7059">NEED INPUT · 2</text>
 
-  <!-- session cards -->
+  <!-- session card 1 — Need input, exact model-version chip -->
   <g transform="translate(52,398)">
     <rect x="0" y="0" width="353" height="196" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <text x="18" y="34" font-size="15.5" font-weight="650" fill="#2a2620">Refactor auth middleware</text>
-    <rect x="18" y="46" width="92" height="20" rx="10" fill="#f3ddd8"/><text x="30" y="60" font-size="11" font-weight="650" fill="#97362f">Need input</text>
-    <text x="122" y="60" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">api-gateway</text>
-    <text x="18" y="96" font-size="12.5" fill="#5c5347">Claude: Split the token check into its own</text>
-    <text x="18" y="114" font-size="12.5" fill="#5c5347">guard — want me to add refresh rotation?</text>
-    <line x1="18" y1="138" x2="335" y2="138" stroke="#e1d6c0"/>
-    <circle cx="30" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="166" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="52 82" transform="rotate(-90 30 166)" stroke-linecap="round"/>
-    <text x="30" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">38</text><text x="48" y="170" font-size="10" font-weight="650" fill="#7a7059">5H</text>
-    <circle cx="92" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="166" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="22 82" transform="rotate(-90 92 166)" stroke-linecap="round"/>
-    <text x="92" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">11</text><text x="110" y="170" font-size="10" font-weight="650" fill="#7a7059">WK</text>
-    <text x="268" y="170" font-size="11.5" font-weight="650" fill="#2c5241">open live ↗</text>
+    <text x="18" y="32" font-size="15.5" font-weight="650" fill="#2a2620">Refactor auth middleware</text>
+    <rect x="18" y="44" width="90" height="20" rx="10" fill="#f3ddd8"/><text x="29" y="58" font-size="11" font-weight="650" fill="#97362f">Need input</text>
+    <rect x="116" y="44" width="120" height="20" rx="10" fill="#ece3d2" stroke="#e1d6c0"/><text x="127" y="58" font-size="10.5" font-weight="600" fill="#5c5347">Opus 4.8 · Auto</text>
+    <text x="18" y="85" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">api-gateway</text>
+    <text x="18" y="108" font-size="12.5" fill="#5c5347">Claude: Split the token check into a guard —</text>
+    <text x="18" y="125" font-size="12.5" fill="#5c5347">want me to add refresh rotation?</text>
+    <line x1="18" y1="142" x2="335" y2="142" stroke="#e1d6c0"/>
+    <circle cx="30" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="168" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="40 82" transform="rotate(-90 30 168)" stroke-linecap="round"/>
+    <text x="30" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">29</text><text x="48" y="172" font-size="10" font-weight="650" fill="#7a7059">5H</text>
+    <circle cx="92" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="168" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="20 82" transform="rotate(-90 92 168)" stroke-linecap="round"/>
+    <text x="92" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">8</text><text x="110" y="172" font-size="10" font-weight="650" fill="#7a7059">WK</text>
+    <text x="268" y="172" font-size="11.5" font-weight="650" fill="#2c5241">open live ↗</text>
   </g>
+
+  <!-- session card 2 — Working, Stop control -->
   <g transform="translate(423,398)">
     <rect x="0" y="0" width="353" height="196" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <text x="18" y="34" font-size="15.5" font-weight="650" fill="#2a2620">Fix flaky E2E tests</text>
-    <rect x="18" y="46" width="78" height="20" rx="10" fill="#efe6cc"/><text x="30" y="60" font-size="11" font-weight="650" fill="#8a6410">Working</text>
-    <text x="108" y="60" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">web-app</text>
-    <text x="18" y="96" font-size="12.5" fill="#5c5347">Claude: Re-running the suite with the retry</text>
-    <text x="18" y="114" font-size="12.5" fill="#5c5347">wrapper to isolate the flaky timing spec…</text>
-    <line x1="18" y1="138" x2="335" y2="138" stroke="#e1d6c0"/>
-    <circle cx="30" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="166" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="30 82" transform="rotate(-90 30 166)" stroke-linecap="round"/>
-    <text x="30" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">22</text><text x="48" y="170" font-size="10" font-weight="650" fill="#7a7059">5H</text>
-    <circle cx="92" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="166" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="14 82" transform="rotate(-90 92 166)" stroke-linecap="round"/>
-    <text x="92" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">7</text><text x="110" y="170" font-size="10" font-weight="650" fill="#7a7059">WK</text>
+    <text x="18" y="32" font-size="15.5" font-weight="650" fill="#2a2620">Fix flaky E2E tests</text>
+    <rect x="18" y="44" width="76" height="20" rx="10" fill="#efe6cc"/><text x="28" y="58" font-size="11" font-weight="650" fill="#8a6410">Working</text>
+    <rect x="102" y="44" width="128" height="20" rx="10" fill="#ece3d2" stroke="#e1d6c0"/><text x="113" y="58" font-size="10.5" font-weight="600" fill="#5c5347">Sonnet 4.5 · Auto</text>
+    <text x="18" y="85" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">web-app</text>
+    <text x="18" y="108" font-size="12.5" fill="#5c5347">Claude: Re-running the suite with the retry</text>
+    <text x="18" y="125" font-size="12.5" fill="#5c5347">wrapper to isolate the flaky timing spec…</text>
+    <line x1="18" y1="142" x2="335" y2="142" stroke="#e1d6c0"/>
+    <circle cx="30" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="168" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="21 82" transform="rotate(-90 30 168)" stroke-linecap="round"/>
+    <text x="30" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">15</text><text x="48" y="172" font-size="10" font-weight="650" fill="#7a7059">5H</text>
+    <circle cx="92" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="168" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="12 82" transform="rotate(-90 92 168)" stroke-linecap="round"/>
+    <text x="92" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">5</text><text x="110" y="172" font-size="10" font-weight="650" fill="#7a7059">WK</text>
+    <rect x="248" y="156" width="86" height="24" rx="12" fill="#fbf6ec" stroke="#cdab63"/>
+    <rect x="262" y="163" width="10" height="10" rx="2" fill="none" stroke="#8a6410" stroke-width="1.7"/>
+    <text x="280" y="172" font-size="11.5" font-weight="650" fill="#8a6410">Stop</text>
   </g>
+
+  <!-- session card 3 — Inactive -->
   <g transform="translate(794,398)">
     <rect x="0" y="0" width="353" height="196" rx="14" fill="#fbf6ec" stroke="#e1d6c0"/>
-    <text x="18" y="34" font-size="15.5" font-weight="650" fill="#2a2620">Add CSV export endpoint</text>
-    <rect x="18" y="46" width="72" height="20" rx="10" fill="#eae2d2"/><text x="30" y="60" font-size="11" font-weight="650" fill="#6f665a">Inactive</text>
-    <text x="102" y="60" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">reports-svc</text>
-    <text x="18" y="96" font-size="12.5" fill="#5c5347">Claude: Done — /export streams rows and sets</text>
-    <text x="18" y="114" font-size="12.5" fill="#5c5347">the attachment headers. Tests are green.</text>
-    <line x1="18" y1="138" x2="335" y2="138" stroke="#e1d6c0"/>
-    <circle cx="30" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="166" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="8 82" transform="rotate(-90 30 166)" stroke-linecap="round"/>
-    <text x="30" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">6</text><text x="48" y="170" font-size="10" font-weight="650" fill="#7a7059">5H</text>
-    <circle cx="92" cy="166" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="166" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="6 82" transform="rotate(-90 92 166)" stroke-linecap="round"/>
-    <text x="92" y="170" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">3</text><text x="110" y="170" font-size="10" font-weight="650" fill="#7a7059">WK</text>
+    <text x="18" y="32" font-size="15.5" font-weight="650" fill="#2a2620">Add CSV export endpoint</text>
+    <rect x="18" y="44" width="70" height="20" rx="10" fill="#eae2d2"/><text x="28" y="58" font-size="11" font-weight="650" fill="#6f665a">Inactive</text>
+    <rect x="96" y="44" width="92" height="20" rx="10" fill="#ece3d2" stroke="#e1d6c0"/><text x="107" y="58" font-size="10.5" font-weight="600" fill="#5c5347">Haiku 4.5</text>
+    <text x="18" y="85" font-size="11.5" font-family="ui-monospace, Menlo, monospace" fill="#2c5241">reports-svc</text>
+    <text x="18" y="108" font-size="12.5" fill="#5c5347">Claude: Done — /export streams rows and sets</text>
+    <text x="18" y="125" font-size="12.5" fill="#5c5347">the attachment headers. Tests are green.</text>
+    <line x1="18" y1="142" x2="335" y2="142" stroke="#e1d6c0"/>
+    <circle cx="30" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="30" cy="168" r="13" fill="none" stroke="#8a6410" stroke-width="3" stroke-dasharray="7 82" transform="rotate(-90 30 168)" stroke-linecap="round"/>
+    <text x="30" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">5</text><text x="48" y="172" font-size="10" font-weight="650" fill="#7a7059">5H</text>
+    <circle cx="92" cy="168" r="13" fill="none" stroke="#ece3d2" stroke-width="3"/><circle cx="92" cy="168" r="13" fill="none" stroke="#3a6451" stroke-width="3" stroke-dasharray="5 82" transform="rotate(-90 92 168)" stroke-linecap="round"/>
+    <text x="92" y="172" text-anchor="middle" font-size="9" font-weight="700" font-family="ui-monospace, Menlo, monospace" fill="#5c5347">2</text><text x="110" y="172" font-size="10" font-weight="650" fill="#7a7059">WK</text>
   </g>
 </svg>
