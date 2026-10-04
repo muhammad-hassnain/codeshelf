@@ -30,6 +30,8 @@ node server.js          # serves http://127.0.0.1:4178  (or: npm start)
 ### Data model (read-only against `~/.claude`)
 - **Live status:** `~/.claude/sessions/<pid>.json` has a `status` (`busy`/`idle`); the pid is cross-checked for being alive. alive+busy → **Working**, alive+idle → **Need input**, no live process → **Inactive**.
 - **Conversations:** `~/.claude/projects/<project>/<uuid>.jsonl` transcripts (one level deep; deeper files are subagent/workflow journals and are excluded).
+- **Account ownership:** each transcript carries `attachment` lines (`session_context` → `userEmail`, `credential_org` → `organizationUuid`) written by whichever account ran it; `getMeta` keeps the latest (a session can span accounts). `sessionMine(meta, acct)` compares that to the signed-in account read from `~/.claude.json` → `oauthAccount` (via `currentAccount()`, re-read each list build so switching accounts is picked up with no restart). The board, status counts, project chips, and token-usage shares are all filtered to the signed-in account by default; the top-bar "All projects" toggle shows every account.
+- **Model / permission mode:** a session's current model is the latest assistant message's `message.model`; the reply composer can switch it on a live session (see below).
 - **Plan usage (live):** `claude -p --no-session-persistence "/usage"` — a local command (no model call) reporting the account the CLI is signed into, cached ~45s and de-duplicated across callers. Parsed in `parseUsageText`; reset times via `parseResetTime`. Fallback when the CLI is unusable: the desktop app's `plan-usage-history.json` (macOS `~/Library/Application Support/Claude`), which is written only occasionally and mixes every org the app has signed into — so it's filtered to the CLI's org and flagged `stale`/"may be out of date" in the UI. Never present the history file as current.
 
 CodeShelf **never writes** to `~/.claude` itself. Its only writes are: a reply you send (via the `claude` CLI, which appends to the transcript), uploaded attachments under `~/.codeshelf/uploads`, and its own state under `~/.codeshelf` (queue, config, `usage-live.json` sparkline samples). The usage probe runs from `~/.codeshelf/usage-probe` with `--no-session-persistence` so it never creates a transcript (the CLI may leave one empty project folder for that cwd).
@@ -52,13 +54,14 @@ CodeShelf **never writes** to `~/.claude` itself. Its only writes are: a reply y
 - ESM everywhere (`import`/`export`, `"type": "module"`).
 - Match the surrounding terse, comment-where-non-obvious style. Favor small pure helpers.
 - Frontend: vanilla DOM, `$`/`$$` helpers, template strings for rendering, `esc()` for all interpolated text. The Markdown renderer (`md()`) escapes first, then transforms — keep that ordering.
-- Env/config knobs: `PORT`, `HOST`, `CLAUDE_CONFIG_DIR`, `CLAUDE_BIN`, `CE_ORG`, `ANTHROPIC_API_KEY`.
+- Env/config knobs: `PORT`, `HOST`, `CLAUDE_CONFIG_DIR`, `CLAUDE_BIN`, `CE_USAGE_FILE`, `ANTHROPIC_API_KEY`. (There is no `CE_ORG` anymore — live-window deep links resolve from each session's host id.)
 
 ## Common tasks
 
 - **Add an API endpoint:** put it behind the same token + (for writes) same-site + JSON-content-type gates as the existing routes in the request handler in `server.js`.
 - **Add a frontend view/control:** render with template strings, wire events after `innerHTML`, use existing tokens/classes in `style.css`.
-- **Change behavior of sending:** the headless path is `sendToSession` (`claude --resume … -p`); the live-window path is `typeIntoLiveWindow` (clipboard → `open -g` deep link → `osascript` paste → restore focus). Both are in `server.js`; the client calls them from `sendNow` / `sendToLiveWindow` in `public/app.js`.
+- **Change behavior of sending:** the headless path is `sendToSession` (`claude --resume … -p`); the live-window path is `typeIntoLiveWindow` (clipboard → `open -g` of the `claude://code/continue?session=<hostSessionId>` deep link via `sessionDeepLink()` → `osascript` paste → restore focus). A model switch pastes `/model <id>` as a first message before the real one; `interruptLiveWindow` (the **Stop** button / `POST …/livestop`) fronts the session and sends Escape. All in `server.js`; the client calls them from `sendNow` / `sendToLiveWindow` / `stopLive` in `public/app.js`.
+- **Deep links / "open in app":** build them only with `sessionDeepLink(host)` (`claude://code/continue?session=<local_…hostSessionId>`). The old `claude.ai/<org>/<id>` form was never recognised by the Claude app, so it never switched sessions — don't reintroduce it, and no org/`CE_ORG` is needed.
 
 ## Before opening a PR
 

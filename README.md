@@ -11,7 +11,7 @@
 > Run many Claude Code sessions at once? CodeShelf is the **Claude Code dashboard / session manager** that tells you, at a glance, which agent needs you next — and lets you reply straight into the live chat.
 
 <p align="center">
-  <img src="docs/hero.svg" alt="CodeShelf dashboard: a board of Claude Code sessions grouped by status (Need input, Working, Inactive), with plan-usage meters and per-session usage donuts" width="920">
+  <img src="docs/hero.svg" alt="CodeShelf dashboard: a board of Claude Code sessions scoped to the signed-in account, grouped by status (Need input, Working, Inactive), with plan-usage meters, exact model-version chips (e.g. Opus 4.8), a Stop control, and per-session plan-limit donuts" width="920">
 </p>
 
 ---
@@ -27,10 +27,10 @@ CodeShelf reorders everything around **status, not spelling**. Sessions that **n
 If you keep several Claude Code agents running, the hard part isn't starting them — it's **knowing which one is blocked on you right now**. CodeShelf reads Claude Code's own session files (read-only) and gives you:
 
 - a single board of every session, grouped by status, that refreshes live;
-- one-click filtering by **status** or **project**;
+- one-click filtering by **status** or **project**, and **scoped to the account you're signed into** (switch accounts and the board follows — flip "All projects" to see everything);
 - **full-text search** across every past conversation;
-- a reply box that **types straight into the live Claude Code window** (so it also shows up on Remote Control and your phone) — or runs a headless turn when the session is closed;
-- your **plan usage** (5-hour and weekly windows) up top.
+- a reply box that **types straight into the live Claude Code window** (so it also shows up on Remote Control and your phone) — pick an **exact model version** to switch to, **Stop** a running turn, or **queue** a message while it's busy — or run a headless turn when the session is closed;
+- your **plan usage** (5-hour and weekly windows) up top, and a per-project breakdown of how much of each limit you've used.
 
 It's **zero-dependency** (one `server.js`, no `npm install`), **local-only** (binds to loopback), and never writes to your `~/.claude` files — the only thing it writes is a reply you send on purpose (plus its own small state under `~/.codeshelf`).
 
@@ -53,6 +53,7 @@ No build step, no dependencies — just **Node 18+**. (You can also run it with 
 - **Status at a glance** — every card shows status as **icon + text + color** (never color alone), the project, branch, message count, and when it last moved.
 - **Auto-refresh** — the board updates every few seconds while a session is live; toggle it off with the **Live** switch.
 - **Pin** — star the sessions you care about into a Pinned group up top.
+- **Account-scoped** — the board shows only the sessions that belong to the account your Claude CLI is signed into (recognised from each transcript's own account markers). Switch accounts and it updates on its own, with no restart. Flip the **"All projects"** toggle in the top bar to see every account's sessions instead.
 
 ### Browse & search
 - **Full-text search** across every conversation (match-all-words, highlighted hits).
@@ -61,8 +62,11 @@ No build step, no dependencies — just **Node 18+**. (You can also run it with 
 
 ### Reply from the dashboard
 - **Send to the live window** — on a live session, your message is typed **straight into the real Claude Code window** via macOS automation, so it syncs to **Remote Control** and your **phone**, and the reply streams back into CodeShelf. The app briefly comes forward to paste, then hands focus back to where you were.
+- **Switch the model live** — pick a model for your reply and CodeShelf switches the live session to it first (via `/model`), so the turn runs on it **in the same chat**. Choose a family (latest **Opus / Sonnet / Haiku / Fable**) *or* an **exact version** — e.g. `Opus 4.8`, `Sonnet 4.5`, `Haiku 4.5` — matching what the Claude app offers.
+- **Stop a running turn** — a **Stop** button on a working live session interrupts the current generation (sends Escape to the window), without leaving CodeShelf.
+- **Queue while busy** — send a message to a session that's mid-turn and it **queues**, then drains in order when the turn finishes.
+- **Permission mode & effort** — set the session's **permission mode** and a reasoning **effort** level (Low → Max) per message (all server-allowlisted).
 - **Headless reply** — for closed sessions (or file attachments), send a `claude --resume … -p` turn that streams into the chat.
-- **Model & effort** — pick **Opus / Sonnet / Haiku / Fable** and an **effort** level (Low → Max) per message (both server-allowlisted).
 - **Attach & dictate** — attach images/files (click, **paste**, or **drag-and-drop**), or tap the **mic** to dictate. Attachments are saved under `~/.codeshelf/uploads` and the agent is granted read access to them.
 
 ### Start & hand off work
@@ -71,7 +75,7 @@ No build step, no dependencies — just **Node 18+**. (You can also run it with 
 
 ### Usage & polish
 - **Live plan usage** — your current **5-hour** and **weekly** limits with the % used, a "resets in …" countdown and a trend sparkline, read live from `claude /usage` (the account your CLI is signed into), not from a stale file.
-- **Per-session usage** — two small donuts per card show this chat's **share** of your 5-hour and weekly token use.
+- **Per-session & per-project limit share** — two small donuts per card show how much of your **current 5-hour and weekly plan limits** that session has used, so the circles across your projects add up to the gauges at the top. Everything stays scoped to the signed-in account (project A's share counts only *this* account's usage of it).
 - **Themes** — a flat "reading room" palette in **light / dark / follow-system**, native system fonts, no gradients or emoji-as-icons.
 - **Opt-in notifications** when a session flips to needing you.
 
@@ -86,8 +90,9 @@ All optional — CodeShelf works with zero config.
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Where Claude Code stores sessions |
 | `CLAUDE_BIN` | auto-detected | Path to the `claude` binary (for replies / new sessions). On Windows, point this at `claude.exe` if auto-detect misses it |
 | `CE_USAGE_FILE` | auto-detected | Fallback only: path to the desktop app's `plan-usage-history.json`, used when the live `claude /usage` read isn't available (auto-resolved per OS) |
-| `CE_ORG` | _(none)_ | Your claude.ai org slug — **set this** to enable the "open in app" deep links and live-window typing |
 | `ANTHROPIC_API_KEY` | — | If set, the `claude` CLI uses it for replies instead of a login |
+
+> The "open in app" links and live-window typing need **no configuration** — they use the Claude app's own `claude://code/continue?session=…` deep link, resolved from each live session's host id. (Earlier versions needed a `CE_ORG` env var; that's gone.)
 
 ## How status is determined
 
@@ -113,7 +118,7 @@ Run it once in a terminal (or set `ANTHROPIC_API_KEY` before starting the server
 
 ## Typing into the live window (macOS)
 
-The "Send to live window" path uses macOS GUI automation to paste your message into the real Claude Code window and press Return. The first time, macOS will ask you to grant **Accessibility** permission to whatever app runs `node server.js` (your terminal): **System Settings → Privacy & Security → Accessibility**. For the cleanest experience, run CodeShelf in a normal browser (not inside the Claude app) so "your window" is unambiguous. If it can't confirm the message landed, it keeps your text and tells you.
+The "Send to live window" path uses macOS GUI automation: it opens the Claude app's own deep link to focus the target session, pastes your message, and presses Return. Switching the model (`/model …`) and **Stop** (Escape) go through the same path. The first time, macOS will ask you to grant **Accessibility** permission to whatever app runs `node server.js` (your terminal): **System Settings → Privacy & Security → Accessibility**. For the cleanest experience, run CodeShelf in a normal browser (not inside the Claude app) so "your window" is unambiguous. If it can't confirm the message landed, it keeps your text and tells you.
 
 ## Security
 
@@ -163,6 +168,6 @@ PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Working on this with an 
 
 ---
 
-<sub>**Keywords:** Claude Code dashboard · Claude Code session manager · monitor Claude Code sessions · Claude Code web UI · manage multiple Claude Code agents · Claude Code session viewer · reply to Claude Code from a browser · Anthropic Claude Code tools · local self-hosted Claude Code monitor.</sub>
+<sub>**Keywords:** Claude Code dashboard · Claude Code session manager · monitor Claude Code sessions · Claude Code web UI · manage multiple Claude Code agents · Claude Code session viewer · reply to Claude Code from a browser · switch Claude Code model from a dashboard · stop / interrupt a Claude Code turn · Claude Code account filter · Claude Code plan-usage / token-limit tracker · Anthropic Claude Code tools · local self-hosted Claude Code monitor.</sub>
 
-<sub>Suggested GitHub topics: `claude-code` · `claude` · `anthropic` · `dashboard` · `ai-agents` · `developer-tools` · `macos` · `self-hosted` · `zero-dependency` · `nodejs`</sub>
+<sub>Suggested GitHub topics: `claude-code` · `claude` · `anthropic` · `dashboard` · `ai-agents` · `developer-tools` · `macos` · `self-hosted` · `zero-dependency` · `nodejs` · `llm-ops` · `usage-tracking`</sub>
