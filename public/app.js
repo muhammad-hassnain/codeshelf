@@ -464,8 +464,24 @@ function renderError(title, msg, retry) {
 // ---------------------------------------------------------------------------
 // Usage panel
 // ---------------------------------------------------------------------------
-async function loadUsage() {
-  try { renderUsage(await api("/api/usage")); } catch {}
+async function loadUsage(opts = {}) {
+  try { renderUsage(await api("/api/usage" + (opts.refresh ? "?refresh=1" : ""))); } catch {}
+}
+// User-triggered re-read of the plan limits. The CLI probe can take a few seconds,
+// so swap the two refresh icons for spinners and disable them until the response lands.
+let usageRefreshing = false;
+async function refreshUsageNow() {
+  if (usageRefreshing) return;
+  usageRefreshing = true;
+  const btns = $$(".usage-refresh");
+  for (const b of btns) { b.disabled = true; b.classList.add("spin"); }
+  try { await loadUsage({ refresh: true }); toast("Plan usage refreshed", "ok"); }
+  catch { toast("Couldn't refresh plan usage", "err"); }
+  finally {
+    usageRefreshing = false;
+    // renderUsage replaces the buttons; only touch any that still exist.
+    for (const b of $$(".usage-refresh")) { b.disabled = false; b.classList.remove("spin"); }
+  }
 }
 function renderUsage(u) {
   const box = $("#usage");
@@ -510,7 +526,7 @@ function gauge(label, d, strong, soft, upd, cap = 0) {
     : "";
   return `<div class="ucard" style="--uc:${col}" aria-label="${label}: ${pct}% used${cap ? `, budget ${cap}%${over ? " — over budget" : ""}` : ""}">
     <div class="uinfo">
-      <div class="ulabel"><span class="led" style="background:${dot}"></span>${label}${budgetNote}</div>
+      <div class="ulabel"><span class="led" style="background:${dot}"></span>${label}${budgetNote}<button type="button" class="usage-refresh" data-usage-refresh aria-label="Re-read ${label}" title="Re-read live plan usage">${svg("refresh", "ic-sm")}</button></div>
       <div class="urow"><span class="upct">${pct}%</span><span class="usub">${upd}</span></div>
       <div class="ubar">${marker}<div class="ufill" style="width:${Math.min(100, pct)}%"></div></div>
     </div>
@@ -1363,11 +1379,15 @@ async function loginFromModal() {
   } catch (e) { reset(); toast(e.message || "Couldn't start sign-in", "err"); }
 }
 // Poll /api/account for ~2 min while the browser flow completes; stop if the modal closes.
+// If the server reports the CLI exited without a token (loginError), surface it right
+// away instead of silently timing out.
 async function pollLogin(btn, n) {
-  if (n > 60 || !acctModalOpen() || $("#acctLogin") !== btn) { if ($("#acctLogin") === btn) { btn.disabled = false; btn.innerHTML = `${svg("user", "ic-sm")} Sign in with your browser`; } return; }
+  const reset = () => { if ($("#acctLogin") === btn) { btn.disabled = false; btn.innerHTML = `${svg("user", "ic-sm")} Sign in with your browser`; } };
+  if (n > 60 || !acctModalOpen() || $("#acctLogin") !== btn) { reset(); return; }
   await new Promise((r) => setTimeout(r, 2000));
   let info; try { info = await api("/api/account"); } catch { return pollLogin(btn, n + 1); }
   if (info.loggedIn) { await loadMeta(); toast("Signed in", "ok"); if (acctModalOpen()) renderAccountModal(info); return; }
+  if (info.loginError && !info.loginInProgress) { reset(); toast(info.loginError, "err"); return; }
   pollLogin(btn, n + 1);
 }
 const acctModalOpen = () => !$("#modalBackdrop").hidden && !!$(".acct");
@@ -1747,6 +1767,8 @@ document.addEventListener("click", (e) => {
   if (sendnow) { if (sendnow.disabled) return; closeComposerPopovers(); forceSend(); return; }
   const recheck = e.target.closest("[data-recheck-auth]");
   if (recheck) { e.stopPropagation(); recheckAuth(recheck); return; }
+  const refreshUsage = e.target.closest("[data-usage-refresh]");
+  if (refreshUsage) { e.stopPropagation(); refreshUsageNow(); return; }
   const startLogin = e.target.closest("[data-start-login]");
   if (startLogin) { e.stopPropagation(); openAccountModal(); return; } // the modal drives the browser sign-in + polling
   const openAcct = e.target.closest("[data-open-account]");

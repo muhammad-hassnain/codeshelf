@@ -1260,7 +1260,63 @@ async function accountInfo() {
     } catch { fin(""); }
   });
   const loggedIn = await checkLoggedIn();
-  return { loggedIn, method: loggedIn ? "oauth" : "none", account, keySet: false, envKey: false };
+  const info = { loggedIn, method: loggedIn ? "oauth" : "none", account, keySet: false, envKey: false };
+  // Surface a browser-login attempt that failed/ended without producing a session,
+  // so the modal's spinner can turn into an actionable error instead of just timing out.
+  if (!loggedIn && loginProc) {
+    if (loginProc.running) info.loginInProgress = true;
+    else if (loginProc.error) info.loginError = loginProc.error;
+  }
+  return info;
+}
+
+// Browser-login child state. The CLI's `auth login --claudeai` opens the system
+// browser and runs a local callback listener; it's long-lived (~until the user
+// finishes in the browser) and non-interactive, but if we hand it stdio:"ignore"
+// a prompt (org picker, etc.) EOFs its stdin and it dies without saving tokens.
+// We keep it attached, buffer stderr for the UI, and only ever have one running.
+let loginProc = null; // { pid, running, startedAt, stderr, error }
+function stopLoginProc() { try { if (loginProc?.child) loginProc.child.kill("SIGTERM"); } catch {} }
+function startLoginProc() {
+  if (loginProc?.running) return { ok: true, alreadyRunning: true };
+  const bin = findClaudeBinary();
+  if (!bin || !fs.existsSync(bin))
+    return { ok: false, message: "Couldn't find the claude CLI. Set CLAUDE_BIN to its full path." };
+  try {
+    // stdio: inherit stdin from /dev/null (no interactive prompts answerable
+    // from here anyway), but PIPE stdout+stderr so (a) a prompt doesn't EOF-crash
+    // the child and (b) we can surface failure reasons back to the UI.
+    const child = spawn(bin, ["auth", "login", "--claudeai"], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    const state = { child, pid: child.pid, running: true, startedAt: Date.now(), stdout: "", stderr: "", error: "" };
+    // Keep only the tail — the login flow prints a URL and a success/failure line.
+    const take = (buf, chunk) => (buf + chunk).slice(-4096);
+    child.stdout?.setEncoding?.("utf8");
+    child.stderr?.setEncoding?.("utf8");
+    child.stdout?.on?.("data", (d) => { state.stdout = take(state.stdout, d); });
+    child.stderr?.on?.("data", (d) => { state.stderr = take(state.stderr, d); });
+    child.on("error", (e) => {
+      state.running = false;
+      state.error = state.error || `Couldn't start ${path.basename(bin)}: ${e.message}`;
+    });
+    child.on("close", async (code) => {
+      state.running = false;
+      // If the CLI ended but we're not actually signed in, surface the stderr tail
+      // (or a generic hint). Give the keychain a moment to settle before checking.
+      await new Promise((r) => setTimeout(r, 400));
+      authCache = { at: 0, loggedIn: false, checked: false };
+      const nowIn = await checkLoggedIn();
+      if (!nowIn) {
+        const detail = (state.stderr || state.stdout || "").trim().split("\n").slice(-4).join(" ").slice(0, 300);
+        state.error = detail || (code === 0
+          ? "The sign-in window closed before a token was captured. Try again, and don't close the browser tab until it says you can close it."
+          : `claude auth login exited with code ${code}.`);
+      }
+    });
+    loginProc = state;
+    return { ok: true, pid: child.pid };
+  } catch (e) {
+    return { ok: false, message: String(e.message || e).slice(0, 300) };
+  }
 }
 
 const inFlightSends = new Set();
@@ -1930,6 +1986,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/usage" && req.method === "GET") {
+        // ?refresh=1 drops the 45s cache so the user's "re-read" button gets a
+        // fresh `claude -p /usage` reading. The in-flight de-dupe still protects
+        // us from a click burst spawning multiple CLIs.
+        if (url.searchParams.get("refresh")) usageCache = { at: 0, data: usageCache.data };
         return sendJSON(res, 200, await readUsage());
       }
 
@@ -1976,21 +2036,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === "/api/login" && req.method === "POST") {
-        const bin = findClaudeBinary();
-        if (!bin || !fs.existsSync(bin))
-          return sendJSON(res, 200, { ok: false, message: "Couldn't find the claude CLI. Set CLAUDE_BIN to its full path." });
-        try {
-          // Launch the CLI's browser sign-in and detach: it opens the system browser
-          // and runs its own callback listener, so we can't block on it — the client
-          // polls /api/account afterward. Fixed args, no shell: no injection surface.
-          const child = spawn(bin, ["auth", "login", "--claudeai"], { detached: true, stdio: "ignore" });
-          child.on("error", () => {});
-          child.unref();
-          authCache = { at: 0, loggedIn: false, checked: false };
-          return sendJSON(res, 200, { ok: true });
-        } catch (e) {
-          return sendJSON(res, 200, { ok: false, message: String(e.message || e).slice(0, 300) });
-        }
+        // If a previous attempt is still running, surface that rather than start a
+        // second CLI listening on the same callback port. The client polls
+        // /api/account for the actual flip to logged in.
+        authCache = { at: 0, loggedIn: false, checked: false };
+        const r = startLoginProc();
+        return sendJSON(res, 200, r);
       }
 
       if (p === "/api/logout" && req.method === "POST") {
